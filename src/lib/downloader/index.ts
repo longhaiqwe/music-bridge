@@ -1,10 +1,12 @@
 import { MusicInfo, MusicSource } from './types';
 import { YoutubeSource } from './sources/youtube';
+import { QQMusicSource } from './sources/qq';
 
 export class DownloadManager {
     private sources: MusicSource[] = [];
 
     constructor() {
+        this.registerSource(new QQMusicSource());
         this.registerSource(new YoutubeSource());
     }
 

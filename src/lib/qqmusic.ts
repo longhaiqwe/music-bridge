@@ -70,6 +70,43 @@ export class QQMusicService {
         } catch (e) {
             console.error('QQ Music Search failed:', e);
             // Return empty array to allow fallback to original NetEase sorting
+            // Return empty array to allow fallback to original NetEase sorting
+            return [];
+        }
+    }
+
+    // General search for songs
+    async search(keyword: string): Promise<SongInfo[]> {
+        try {
+            // @ts-ignore
+            const searchRes = await qq.api('search', {
+                key: keyword,
+                pageSize: 10
+            });
+
+            // @ts-ignore
+            const list = searchRes?.list || searchRes?.data?.list || [];
+
+            // @ts-ignore
+            return list.map(s => {
+                return {
+                    id: s.songmid || s.mid || s.songid,
+                    name: s.songname || s.name || s.title,
+                    ar: (s.singer || []).map((art: any) => ({
+                        id: art.mid || art.id,
+                        name: art.name
+                    })),
+                    al: {
+                        id: s.albummid || s.albumid || s.album?.mid,
+                        name: s.albumname || s.album?.name || '',
+                        picUrl: (s.albummid || s.album?.mid) ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid || s.album?.mid}.jpg` : undefined
+                    },
+                    dt: (s.interval || 0) * 1000,
+                    source: 'qq'
+                } as SongInfo;
+            });
+        } catch (e) {
+            console.error('QQ General Search failed:', e);
             return [];
         }
     }
