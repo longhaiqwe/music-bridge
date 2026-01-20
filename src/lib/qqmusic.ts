@@ -25,7 +25,7 @@ export class QQMusicService {
             // @ts-ignore
             const searchRes = await qq.api('search', {
                 key: artistName,
-                pageSize: 100 // Increase limit to fetch more songs
+                pageSize: 50 // Increase limit to fetch more songs
             });
 
             // @ts-ignore
