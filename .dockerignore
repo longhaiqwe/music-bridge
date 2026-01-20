@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+*.log
+tmp_downloads
+debug*.html
+cookie.json
+.DS_Store
