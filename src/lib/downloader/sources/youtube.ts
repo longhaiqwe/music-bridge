@@ -52,9 +52,24 @@ export class YoutubeSource implements MusicSource {
         return new Promise((resolve, reject) => {
             try {
                 const videoUrl = `https://www.youtube.com/watch?v=${info.originalId}`;
+
+                // Create agent with cookies if available
+                let agent;
+                try {
+                    const cookieStr = process.env.YOUTUBE_COOKIES;
+                    if (cookieStr) {
+                        const cookies = JSON.parse(cookieStr);
+                        agent = ytdl.createAgent(cookies);
+                        console.log('[YoutubeSource] Using provided YouTube cookies');
+                    }
+                } catch (e) {
+                    console.warn('[YoutubeSource] Failed to parse YOUTUBE_COOKIES:', e);
+                }
+
                 const audioStream = ytdl(videoUrl, {
                     quality: 'highestaudio',
-                    filter: 'audioonly'
+                    filter: 'audioonly',
+                    agent
                 });
 
                 // Use ffmpeg to convert to mp3
