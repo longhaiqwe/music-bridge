@@ -17,10 +17,6 @@ export class YoutubeSource implements MusicSource {
     async search(keyword: string): Promise<MusicInfo[]> {
         try {
             // ytsearch5: Limit to 5 results
-            // --dump-json: Output JSON
-            // --flat-playlist: Don't extract video details (faster, but might miss duration)
-            // Actually without flat-playlist is better for duration, but slower.
-            // Let's try without flat-playlist for metadata.
             const { stdout } = await this.execWithRetry(`yt-dlp --dump-json --no-playlist "ytsearch5:${keyword}"`);
 
             const results: MusicInfo[] = [];
@@ -61,13 +57,8 @@ export class YoutubeSource implements MusicSource {
 
         try {
             // Download best audio and convert to mp3
-            // -x: Extract audio
-            // --audio-format mp3
-            // -o: Output template
             await this.execWithRetry(`yt-dlp -x --audio-format mp3 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`);
 
-            // Check if file exists now (yt-dlp might keep original ext if conversion fails, but we asked for mp3)
-            // Note: yt-dlp with --audio-format mp3 usually ensures .mp3 extension
             if (fs.existsSync(filePath)) {
                 return filePath;
             }

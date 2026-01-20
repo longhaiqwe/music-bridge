@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import { downloadManager } from '@/lib/downloader';
 import { neteaseService } from '@/lib/netease';
+import { embedMetadata, getSafeFileName } from '@/lib/metadata';
 import fs from 'fs';
+import path from 'path';
 import { MusicInfo } from '@/lib/downloader/types';
+
+const TMP_DIR = path.join(process.cwd(), 'tmp_downloads');
 
 export async function POST(request: Request) {
     let step = 'init';
@@ -16,17 +20,36 @@ export async function POST(request: Request) {
         // 1. Download
         step = 'download';
         console.log(`Starting download for: ${info.name} from ${info.source}`);
-        const filePath = await downloadManager.getDownloadUrl(info);
-        console.log(`Downloaded to: ${filePath}`);
+        const rawFilePath = await downloadManager.getDownloadUrl(info);
+        console.log(`Downloaded to: ${rawFilePath}`);
 
-        // 2. Upload
+        // 2. Embed metadata
+        step = 'metadata';
+        console.log('Embedding metadata...');
+        const ext = path.extname(rawFilePath).replace('.', '');
+        const finalFileName = getSafeFileName(info.name, ext);
+        const finalFilePath = path.join(TMP_DIR, finalFileName);
+
+        await embedMetadata(rawFilePath, finalFilePath, {
+            title: info.name,
+            artist: info.artist,
+            album: info.album || '',
+            coverUrl: info.coverUrl
+        });
+
+        // Clean up raw file (only if different from final)
+        if (rawFilePath !== finalFilePath) {
+            try { fs.unlinkSync(rawFilePath); } catch { }
+        }
+
+        // 3. Upload
         step = 'upload';
         console.log('Uploading to Netease Cloud Disk...');
-        const uploadResult = await neteaseService.uploadToCloudDisk(filePath);
+        const uploadResult = await neteaseService.uploadToCloudDisk(finalFilePath);
         console.log('Upload result:', uploadResult);
 
-        // 3. Cleanup (Optional, keep for debugging or cache)
-        // fs.unlinkSync(filePath); 
+        // 4. Cleanup
+        try { fs.unlinkSync(finalFilePath); } catch { }
 
         return NextResponse.json({ success: true, uploadResult });
     } catch (e: any) {

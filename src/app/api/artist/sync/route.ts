@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { neteaseService } from '@/lib/netease';
 import { downloadManager } from '@/lib/downloader';
+import { embedMetadata, getSafeFileName } from '@/lib/metadata';
 import path from 'path';
 import fs from 'fs';
 import { pipeline } from 'stream/promises';
@@ -77,12 +78,26 @@ export async function POST(request: Request) {
                         }
 
                         // Download to temp
-                        // Clean filename
-                        const safeName = song.name.replace(/[^a-z0-9\u4e00-\u9fa5]/gi, '_');
-                        const ext = downloadUrl.includes('.flac') ? 'flac' : 'mp3'; // Simple guess, can be better
-                        const tmpPath = path.join(TMP_DIR, `${safeName}.${ext}`);
+                        // Determine file extension from downloaded path
+                        const ext = path.extname(downloadUrl).replace('.', '') || 'webm';
+                        const safeFileName = getSafeFileName(song.name, ext);
+                        const rawPath = path.join(TMP_DIR, `raw_${Date.now()}.${ext}`);
+                        const tmpPath = path.join(TMP_DIR, safeFileName);
 
-                        await downloadFile(downloadUrl, tmpPath);
+                        await downloadFile(downloadUrl, rawPath);
+
+                        // Embed proper metadata so NetEase Cloud can display correctly
+                        log(`Embedding metadata for ${song.name}...`);
+                        const songArtists = song.artists?.map((a: any) => a.name).join(', ') || artistName;
+                        await embedMetadata(rawPath, tmpPath, {
+                            title: song.name,
+                            artist: songArtists,
+                            album: song.album?.name || '',
+                            coverUrl: song.album?.picUrl
+                        });
+
+                        // Clean up raw file
+                        try { fs.unlinkSync(rawPath); } catch { }
 
                         // Upload to Cloud
                         log(`Uploading ${song.name}...`);
