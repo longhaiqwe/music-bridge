@@ -63,6 +63,16 @@ export class QQMusicService {
                         source: 'qq'
                     } as SongInfo;
                 });
+            } else {
+                console.warn(`[QQ Music Debug] No results found for ${artistName}. Raw keys: ${Object.keys(searchRes || {})}`);
+                if (searchRes && searchRes.data) {
+                    console.warn(`[QQ Music Debug] searchRes.data keys: ${Object.keys(searchRes.data)}`);
+                }
+                // Try logging the code or message if available
+                // @ts-ignore
+                if (searchRes?.code) console.warn(`[QQ Music Debug] Code: ${searchRes.code}`);
+                // @ts-ignore
+                if (searchRes?.subcode) console.warn(`[QQ Music Debug] Subcode: ${searchRes.subcode}`);
             }
 
             return [];
