@@ -78,13 +78,28 @@ export async function POST(request: Request) {
                         }
 
                         // Download to temp
+                        // Download to temp
                         // Determine file extension from downloaded path
-                        const ext = path.extname(downloadUrl).replace('.', '') || 'webm';
+                        let ext = path.extname(downloadUrl).replace('.', '') || 'webm';
+
+                        // If downloadUrl is a local file path (which it should be for YouTube source now)
+                        if (fs.existsSync(downloadUrl)) {
+                            // It's a local file
+                            log(`Source returned local file: ${downloadUrl}`);
+                            ext = path.extname(downloadUrl).replace('.', '') || 'mp3';
+                        }
+
                         const safeFileName = getSafeFileName(song.name, ext);
                         const rawPath = path.join(TMP_DIR, `raw_${Date.now()}.${ext}`);
                         const tmpPath = path.join(TMP_DIR, safeFileName);
 
-                        await downloadFile(downloadUrl, rawPath);
+                        if (fs.existsSync(downloadUrl)) {
+                            // Copy local file to rawPath
+                            fs.copyFileSync(downloadUrl, rawPath);
+                        } else {
+                            // It's a remote URL, download it
+                            await downloadFile(downloadUrl, rawPath);
+                        }
 
                         // Embed proper metadata so NetEase Cloud can display correctly
                         log(`Embedding metadata for ${song.name}...`);
