@@ -38,7 +38,7 @@ export class QQMusicSource implements MusicSource {
             const ytResults = await this.youtubeSource.search(query);
 
             if (ytResults.length === 0) {
-                throw new Error('No matching song found on YouTube');
+                throw new Error(`No matching song found on YouTube for query: "${query}"`);
             }
 
             // Pick the first result

@@ -11,42 +11,73 @@ if (!fs.existsSync(TMP_DIR)) {
     fs.mkdirSync(TMP_DIR, { recursive: true });
 }
 
+
 export class YoutubeSource implements MusicSource {
     name = 'youtube';
 
-    async search(keyword: string): Promise<MusicInfo[]> {
+    private async withCookies<T>(callback: (cookiePath: string | null) => Promise<T>): Promise<T> {
+        let cookieFile: string | null = null;
         try {
-            console.log(`[YoutubeSource] Searching for: ${keyword}`);
-            // ytsearch5: Limit to 5 results
-            const command = `yt-dlp --dump-json --no-playlist "ytsearch5:${keyword}"`;
-            const { stdout } = await this.execWithRetry(command);
-
-            const results: MusicInfo[] = [];
-            const lines = stdout.trim().split('\n');
-
-            for (const line of lines) {
-                if (!line) continue;
+            const cookieStr = process.env.YOUTUBE_COOKIES;
+            if (cookieStr) {
                 try {
-                    const data = JSON.parse(line);
-                    results.push({
-                        id: data.id,
-                        name: data.title,
-                        artist: data.uploader || 'Unknown',
-                        album: 'YouTube',
-                        duration: data.duration,
-                        coverUrl: data.thumbnail,
-                        source: this.name,
-                        originalId: data.id
-                    });
+                    const cookies = JSON.parse(cookieStr);
+                    cookieFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
+                    const netscapeCookies = this.convertCookiesToNetscape(cookies);
+                    fs.writeFileSync(cookieFile, netscapeCookies);
                 } catch (e) {
-                    console.warn('Failed to parse yt-dlp output line', e);
+                    console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
                 }
             }
-            return results;
-        } catch (e) {
-            console.error('Youtube search failed:', e);
-            return [];
+            return await callback(cookieFile);
+        } finally {
+            if (cookieFile && fs.existsSync(cookieFile)) {
+                try { fs.unlinkSync(cookieFile); } catch { }
+            }
         }
+    }
+
+    async search(keyword: string): Promise<MusicInfo[]> {
+        return this.withCookies(async (cookieFile) => {
+            try {
+                console.log(`[YoutubeSource] Searching for: ${keyword}`);
+                // Escape quotes to prevent shell issues
+                const safeKeyword = keyword.replace(/"/g, '\\"');
+
+                let command = `yt-dlp --dump-json --no-playlist "ytsearch5:${safeKeyword}"`;
+                if (cookieFile) {
+                    command += ` --cookies "${cookieFile}"`;
+                }
+
+                const { stdout } = await this.execWithRetry(command);
+
+                const results: MusicInfo[] = [];
+                const lines = stdout.trim().split('\n');
+
+                for (const line of lines) {
+                    if (!line) continue;
+                    try {
+                        const data = JSON.parse(line);
+                        results.push({
+                            id: data.id,
+                            name: data.title,
+                            artist: data.uploader || 'Unknown',
+                            album: 'YouTube',
+                            duration: data.duration,
+                            coverUrl: data.thumbnail,
+                            source: this.name,
+                            originalId: data.id
+                        });
+                    } catch (e) {
+                        console.warn('Failed to parse yt-dlp output line', e);
+                    }
+                }
+                return results;
+            } catch (e) {
+                console.error('Youtube search failed:', e);
+                return [];
+            }
+        });
     }
 
     async getDownloadUrl(info: MusicInfo): Promise<string> {
@@ -60,56 +91,36 @@ export class YoutubeSource implements MusicSource {
             }
         }
 
-        let cookieFile = '';
-        try {
-            // Check for cookies
-            const cookieStr = process.env.YOUTUBE_COOKIES;
-            if (cookieStr) {
-                try {
-                    const cookies = JSON.parse(cookieStr);
-                    cookieFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
-                    const netscapeCookies = this.convertCookiesToNetscape(cookies);
-                    fs.writeFileSync(cookieFile, netscapeCookies);
-                    console.log(`[YoutubeSource] Created temporary cookie file: ${cookieFile}`);
-                } catch (e) {
-                    console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
+        return this.withCookies(async (cookieFile) => {
+            try {
+                console.log(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
+
+                // Construct command
+                let cmd = `yt-dlp -x --audio-format mp3 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`;
+                if (cookieFile) {
+                    cmd += ` --cookies "${cookieFile}"`;
                 }
+
+                // Download best audio and convert to mp3
+                await this.execWithRetry(cmd);
+
+                if (fs.existsSync(filePath)) {
+                    return filePath;
+                }
+
+                // Fallback: check other extensions
+                const files = fs.readdirSync(TMP_DIR);
+                const downloaded = files.find(f => f.startsWith(info.id));
+                if (downloaded) {
+                    return path.join(TMP_DIR, downloaded);
+                }
+
+                throw new Error('Download failed: file not found after yt-dlp execution');
+            } catch (e) {
+                console.error('Youtube download failed:', e);
+                throw e;
             }
-
-            console.log(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
-
-            // Construct command
-            let cmd = `yt-dlp -x --audio-format mp3 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`;
-            if (cookieFile) {
-                cmd += ` --cookies "${cookieFile}"`;
-            }
-
-            // Download best audio and convert to mp3
-            await this.execWithRetry(cmd);
-
-            if (fs.existsSync(filePath)) {
-                return filePath;
-            }
-
-            // Fallback: check other extensions
-            const files = fs.readdirSync(TMP_DIR);
-            const downloaded = files.find(f => f.startsWith(info.id));
-            if (downloaded) {
-                return path.join(TMP_DIR, downloaded);
-            }
-
-            throw new Error('Download failed: file not found after yt-dlp execution');
-        } catch (e) {
-            console.error('Youtube download failed:', e);
-            throw e;
-        } finally {
-            // Cleanup cookie file
-            if (cookieFile && fs.existsSync(cookieFile)) {
-                try {
-                    fs.unlinkSync(cookieFile);
-                } catch { }
-            }
-        }
+        });
     }
 
     private convertCookiesToNetscape(cookies: any[]): string {
@@ -132,7 +143,7 @@ export class YoutubeSource implements MusicSource {
     private async execWithRetry(command: string, retries = 3, delay = 1000): Promise<{ stdout: string, stderr: string }> {
         for (let i = 0; i < retries; i++) {
             try {
-                return await execAsync(command);
+                return await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
             } catch (e) {
                 if (i === retries - 1) throw e;
                 console.warn(`Command failed, retrying (${i + 1}/${retries}): ${command}`);
