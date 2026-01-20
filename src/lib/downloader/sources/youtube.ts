@@ -21,7 +21,7 @@ export class YoutubeSource implements MusicSource {
             // --flat-playlist: Don't extract video details (faster, but might miss duration)
             // Actually without flat-playlist is better for duration, but slower.
             // Let's try without flat-playlist for metadata.
-            const { stdout } = await execAsync(`yt-dlp --dump-json --no-playlist "ytsearch5:${keyword}"`);
+            const { stdout } = await this.execWithRetry(`yt-dlp --dump-json --no-playlist "ytsearch5:${keyword}"`);
 
             const results: MusicInfo[] = [];
             const lines = stdout.trim().split('\n');
@@ -64,7 +64,7 @@ export class YoutubeSource implements MusicSource {
             // -x: Extract audio
             // --audio-format mp3
             // -o: Output template
-            await execAsync(`yt-dlp -x --audio-format mp3 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`);
+            await this.execWithRetry(`yt-dlp -x --audio-format mp3 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`);
 
             // Check if file exists now (yt-dlp might keep original ext if conversion fails, but we asked for mp3)
             // Note: yt-dlp with --audio-format mp3 usually ensures .mp3 extension
@@ -84,5 +84,18 @@ export class YoutubeSource implements MusicSource {
             console.error('Youtube download failed:', e);
             throw e;
         }
+    }
+
+    private async execWithRetry(command: string, retries = 3, delay = 1000): Promise<{ stdout: string, stderr: string }> {
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await execAsync(command);
+            } catch (e) {
+                if (i === retries - 1) throw e;
+                console.warn(`Command failed, retrying (${i + 1}/${retries}): ${command}`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+        throw new Error('Unreachable');
     }
 }
