@@ -26,9 +26,9 @@ export function LoginPanel({ onLoginSuccess }: { onLoginSuccess: () => void }) {
             const data = await api.auth.getQr();
             setUnikey(data.key);
             setQrImg(data.qrimg);
-            setStatus('Please scan with Netease Cloud Music App');
+            setStatus('请使用网易云音乐 APP 扫码登录');
         } catch (e) {
-            setStatus('Failed to load QR code');
+            setStatus('获取二维码失败');
         }
     };
 
@@ -37,14 +37,14 @@ export function LoginPanel({ onLoginSuccess }: { onLoginSuccess: () => void }) {
         try {
             const res = await api.auth.checkQr(unikey);
             if (res.code === 800) {
-                setStatus('Expired. Refreshing...');
+                setStatus('二维码已过期，正在刷新...');
                 loadQr();
             } else if (res.code === 801) {
-                setStatus('Waiting for scan...');
+                setStatus('等待扫码...');
             } else if (res.code === 802) {
-                setStatus('Scanned. Please confirm on phone.');
+                setStatus('已扫码，请在手机上确认登录');
             } else if (res.code === 803) {
-                setStatus('Login successful!');
+                setStatus('登录成功！');
                 setIsLogged(true);
                 onLoginSuccess();
             }
@@ -55,9 +55,9 @@ export function LoginPanel({ onLoginSuccess }: { onLoginSuccess: () => void }) {
 
     return (
         <div className="p-4 border rounded shadow bg-white max-w-sm mx-auto text-center">
-            <h2 className="text-xl font-bold mb-4">Login to NetEase</h2>
+            <h2 className="text-xl font-bold mb-4">登录网易云音乐</h2>
             {qrImg ? (
-                <img src={qrImg} alt="QR Code" className="mx-auto mb-4 w-48 h-48" />
+                <img src={qrImg} alt="二维码" className="mx-auto mb-4 w-48 h-48" />
             ) : (
                 <div className="w-48 h-48 bg-gray-200 mx-auto mb-4 animate-pulse"></div>
             )}

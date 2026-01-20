@@ -16,7 +16,7 @@ export function ArtistSync() {
     const [loading, setLoading] = useState(false);
     const [artists, setArtists] = useState<Artist[]>([]);
     const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
-    const [syncCount, setSyncCount] = useState(10);
+    const [syncCount, setSyncCount] = useState<number | ''>(10);
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [toSyncSongs, setToSyncSongs] = useState<any[]>([]); // Songs to be synced
     const [isSyncing, setIsSyncing] = useState(false);
@@ -29,38 +29,61 @@ export function ArtistSync() {
         setLoading(true);
         setArtists([]);
         setSelectedArtist(null);
-        setToSyncSongs([]); // Clear old songs
+        setToSyncSongs([]);
         try {
             const res = await fetch(`/api/artist/search?q=${encodeURIComponent(keyword)}`);
             const data = await res.json();
-            if (Array.isArray(data)) {
+            if (Array.isArray(data) && data.length > 0) {
                 setArtists(data);
+                // Auto-select the first artist
+                const firstArtist = data[0];
+                setSelectedArtist(firstArtist);
+
+                // Immediately fetch songs for the first artist
+                setLoadingPreview(true);
+                try {
+                    const songsRes = await fetch(`/api/artist/top-songs?id=${firstArtist.id}`);
+                    const songsData = await songsRes.json();
+                    if (Array.isArray(songsData)) {
+                        setToSyncSongs(songsData.slice(0, Number(syncCount)));
+                    }
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    setLoadingPreview(false);
+                }
+            } else {
+                alert('未找到相关歌手');
             }
         } catch (e) {
             console.error(e);
+            alert('搜索失败');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleFetchTopSongs = async () => {
-        if (!selectedArtist) return;
-        setLoadingPreview(true);
-        setToSyncSongs([]);
-        try {
-            const res = await fetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
-            const data = await res.json();
-            if (Array.isArray(data)) {
-                // Slice by count
-                setToSyncSongs(data.slice(0, syncCount));
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Failed to fetch top songs');
-        } finally {
-            setLoadingPreview(false);
+    // Re-fetch songs if syncCount changes and we have an artist
+    useEffect(() => {
+        if (selectedArtist && !isSyncing) {
+            const fetchSongs = async () => {
+                setLoadingPreview(true);
+                try {
+                    const res = await fetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
+                    const data = await res.json();
+                    if (Array.isArray(data)) {
+                        setToSyncSongs(data.slice(0, Number(syncCount)));
+                    }
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    setLoadingPreview(false);
+                }
+            };
+            fetchSongs();
         }
-    };
+    }, [syncCount, selectedArtist?.id]); // Depend on ID to avoid loop if object ref changes
+
 
     const handleStartSync = async () => {
         if (!selectedArtist) return;
@@ -75,7 +98,7 @@ export function ArtistSync() {
                 body: JSON.stringify({
                     artistId: selectedArtist.id,
                     artistName: selectedArtist.name,
-                    count: syncCount,
+                    count: Number(syncCount),
                     songs: toSyncSongs // Pass selected songs
                 })
             });
@@ -105,7 +128,7 @@ export function ArtistSync() {
             }
 
         } catch (e: any) {
-            setLogs(prev => [...prev, `Error: ${e.message}`]);
+            setLogs(prev => [...prev, `错误: ${e.message}`]);
         } finally {
             setIsSyncing(false);
         }
@@ -117,168 +140,141 @@ export function ArtistSync() {
     }, [logs]);
 
     return (
-        <div className="w-full max-w-4xl mx-auto p-4 space-y-8">
-            {/* 1. Search Section */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                    <Music className="w-5 h-5 text-blue-500" />
-                    Step 1: Search Artist
-                </h2>
-                <form onSubmit={handleSearch} className="flex gap-2">
-                    <input
-                        type="text"
-                        value={keyword}
-                        onChange={(e) => setKeyword(e.target.value)}
-                        placeholder="Artist Name (e.g. Zhou Jielun)"
-                        className="flex-1 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                    />
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium transition"
-                    >
-                        {loading ? <Loader2 className="animate-spin" /> : 'Search'}
-                    </button>
-                </form>
+        <div className="w-full max-w-5xl mx-auto p-6 space-y-6">
+            {/* Top Controls: Singer & Quantity */}
+            <div className="flex flex-col md:flex-row gap-4 items-end">
+                {/* Singer Input */}
+                <div className="flex-1 w-full">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                        歌手
+                    </label>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={keyword}
+                            onChange={(e) => setKeyword(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearch(e)}
+                            placeholder="输入歌手名字 (如: 周杰伦)"
+                            className="flex-1 p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-0 outline-none text-lg transition-colors"
+                        />
+                        <button
+                            onClick={handleSearch}
+                            disabled={loading}
+                            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-bold transition-transform active:scale-95 whitespace-nowrap"
+                        >
+                            {loading ? <Loader2 className="animate-spin" /> : '搜索'}
+                        </button>
+                    </div>
+                </div>
 
-                {/* Results Grid */}
-                {artists.length > 0 && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                        {artists.map((artist) => (
-                            <div
-                                key={artist.id}
-                                onClick={() => {
-                                    if (!isSyncing) {
-                                        setSelectedArtist(artist);
-                                        setToSyncSongs([]); // Reset when changing artist
-                                    }
-                                }}
-                                className={`
-                                    cursor-pointer p-3 rounded-lg border transition-all hover:shadow-md
-                                    ${selectedArtist?.id === artist.id
-                                        ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50'
-                                        : 'border-gray-200 bg-white'
-                                    }
-                                    ${isSyncing ? 'opacity-50 pointer-events-none' : ''}
-                                `}
-                            >
-                                <img
-                                    src={artist.picUrl}
-                                    alt={artist.name}
-                                    className="w-full aspect-square object-cover rounded-md mb-2"
-                                />
-                                <div className="font-semibold text-gray-900 truncate">{artist.name}</div>
-                                <div className="text-xs text-gray-500">{artist.musicSize} Songs</div>
+                {/* Quantity Input */}
+                <div className="w-full md:w-48">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                        数量
+                    </label>
+                    <input
+                        type="number"
+                        value={syncCount}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '') {
+                                setSyncCount('');
+                            } else {
+                                const num = parseInt(val);
+                                if (!isNaN(num)) setSyncCount(num);
+                            }
+                        }}
+                        min={0}
+                        max={500}
+                        disabled={isSyncing}
+                        className="w-full p-3 border-2 border-gray-200 rounded-xl bg-white focus:border-blue-500 focus:ring-0 outline-none text-lg"
+                    />
+                </div>
+            </div>
+
+            {/* Main Display Area */}
+            <div className="relative w-full min-h-[500px] border-4 border-gray-100 rounded-2xl bg-white shadow-sm p-6 overflow-hidden flex flex-col">
+
+                {/* State 1: Empty / Initial */}
+                {!selectedArtist && !isSyncing && (
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
+                        <Music className="w-20 h-20 mb-4 opacity-20" />
+                        <p className="text-lg">请在上方搜索歌手，系统将自动展示热门歌曲</p>
+                    </div>
+                )}
+
+                {/* State 2: Song Preview & Sync Confirm */}
+                {selectedArtist && !isSyncing && (
+                    <div className="flex-1 flex flex-col animate-fade-in">
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                                <h3 className="text-xl font-bold flex items-center gap-2">
+                                    <img src={selectedArtist.picUrl} className="w-10 h-10 rounded-full object-cover shadow-sm" />
+                                    {selectedArtist.name}
+                                    <span className="text-sm font-normal text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                                        将同步前 {toSyncSongs.length} 首歌曲
+                                    </span>
+                                </h3>
                             </div>
-                        ))}
+                            <button
+                                onClick={handleStartSync}
+                                className="px-8 py-2 bg-green-500 text-white font-bold rounded-lg shadow hover:bg-green-600 transition-colors flex items-center gap-2"
+                            >
+                                <CheckCircle2 className="w-5 h-5" />
+                                开始同步
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto border border-gray-100 rounded-xl bg-gray-50/50 p-2">
+                            {loadingPreview ? (
+                                <div className="h-full flex items-center justify-center text-gray-400 gap-2">
+                                    <Loader2 className="animate-spin w-8 h-8" />
+                                    <span>正在加载歌曲列表...</span>
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    {toSyncSongs.length === 0 ? (
+                                        <p className="text-center py-10 text-gray-400">未找到歌曲</p>
+                                    ) : (
+                                        toSyncSongs.map((song, i) => (
+                                            <div key={song.id} className="group flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
+                                                <div className="flex items-center gap-4 overflow-hidden">
+                                                    <span className="text-gray-400 font-mono w-6 text-right font-medium">{i + 1}</span>
+                                                    <div className="truncate font-medium text-gray-700 group-hover:text-blue-700">
+                                                        {song.name}
+                                                    </div>
+                                                </div>
+                                                <div className="text-xs text-gray-400 font-mono">
+                                                    {(song.dt / 1000 / 60).toFixed(2)} min
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* State 3: Syncing / Logs */}
+                {isSyncing && (
+                    <div className="flex-1 flex flex-col animate-fade-in">
+                        <h3 className="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
+                            <Loader2 className="animate-spin text-blue-500" />
+                            正在同步...
+                        </h3>
+                        <div className="flex-1 bg-gray-900 rounded-xl p-4 font-mono text-sm overflow-y-auto shadow-inner text-green-400 space-y-1 scrollbar-thin scrollbar-thumb-gray-700">
+                            {logs.map((log, i) => (
+                                <div key={i} className="break-all border-l-2 border-transparent hover:border-green-600 pl-2 transition-colors">
+                                    <span className="opacity-50 mr-2">[{new Date().toLocaleTimeString()}]</span>
+                                    {log}
+                                </div>
+                            ))}
+                            <div ref={logsEndRef} />
+                        </div>
                     </div>
                 )}
             </div>
-
-            {/* 2. Configure & Sync Section */}
-            {selectedArtist && (
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 animate-fade-in">
-                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                        <RotateCcw className="w-5 h-5 text-green-500" />
-                        Step 2: Start Sync
-                    </h2>
-
-                    <div className="mb-6">
-                        {!toSyncSongs.length ? (
-                            <div className="flex gap-4 items-end">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Select Number of Top Songs
-                                    </label>
-                                    <select
-                                        value={syncCount}
-                                        onChange={(e) => setSyncCount(Number(e.target.value))}
-                                        disabled={loadingPreview}
-                                        className="w-full p-3 border rounded-lg bg-gray-50 font-medium"
-                                    >
-                                        <option value={3}>Top 3 Songs</option>
-                                        <option value={5}>Top 5 Songs</option>
-                                        <option value={10}>Top 10 Songs</option>
-                                        <option value={20}>Top 20 Songs</option>
-                                        <option value={50}>Top 50 Songs</option>
-                                    </select>
-                                </div>
-                                <button
-                                    onClick={handleFetchTopSongs}
-                                    disabled={loadingPreview}
-                                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition disabled:opacity-50"
-                                >
-                                    {loadingPreview ? <Loader2 className="animate-spin" /> : 'Preview Songs'}
-                                </button>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="font-semibold text-lg text-gray-800">
-                                        Found {toSyncSongs.length} Songs will be synced:
-                                    </h3>
-                                    <button
-                                        onClick={() => setToSyncSongs([])}
-                                        disabled={isSyncing}
-                                        className="text-sm text-blue-600 hover:underline"
-                                    >
-                                        Change Selection
-                                    </button>
-                                </div>
-
-                                <div className="max-h-60 overflow-y-auto border rounded-lg bg-gray-50 p-2 space-y-1">
-                                    {toSyncSongs.map((song, i) => (
-                                        <div key={song.id} className="text-sm p-2 bg-white rounded shadow-sm flex justify-between">
-                                            <span className="font-medium text-gray-700">{i + 1}. {song.name}</span>
-                                            <span className="text-gray-500 text-xs">{(song.dt / 1000 / 60).toFixed(2)} min</span>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <button
-                                    onClick={handleStartSync}
-                                    disabled={isSyncing}
-                                    className={`
-                                        w-full py-3 rounded-lg font-bold text-white shadow-lg transition
-                                        flex items-center justify-center gap-2
-                                        ${isSyncing
-                                            ? 'bg-gray-400 cursor-not-allowed'
-                                            : 'bg-green-600 hover:bg-green-700 hover:scale-[1.01] active:scale-[0.99]'
-                                        }
-                                    `}
-                                >
-                                    {isSyncing ? (
-                                        <>
-                                            <Loader2 className="animate-spin" /> Syncing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <CheckCircle2 /> Confirm & Start Sync
-                                        </>
-                                    )}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Terminal / Logs */}
-                    <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600">
-                        {logs.length === 0 ? (
-                            <div className="text-gray-500 italic">Waiting to start... Logs will appear here.</div>
-                        ) : (
-                            <div className="space-y-1">
-                                {logs.map((log, i) => (
-                                    <div key={i} className="text-green-400 border-l-2 border-green-800 pl-2">
-                                        <span className="text-gray-500 mr-2">[{new Date().toLocaleTimeString()}]</span>
-                                        {log}
-                                    </div>
-                                ))}
-                                <div ref={logsEndRef} />
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

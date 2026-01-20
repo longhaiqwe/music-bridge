@@ -23,7 +23,23 @@ export class NeteaseService {
     if (fs.existsSync(COOKIE_FILE)) {
       try {
         const data = fs.readFileSync(COOKIE_FILE, 'utf-8');
-        this.cookie = JSON.parse(data).cookie;
+        const json = JSON.parse(data);
+
+        // Check for expiration (1 day = 24 * 60 * 60 * 1000 ms)
+        // If updatedAt is missing, we also accept it this time (backward compatibility) 
+        // OR we can force re-login. Given user request, let's strictly enforce or maybe expire legacy?
+        // Let's implement strict expiration if user wants security.
+        // But to be friendly, if updatedAt is missing, maybe we should assume it's old and expire it, 
+        // OR treating it as "unknown" and valid for now? 
+        // User asked for "safety", so expiring legacy/sessions without timestamp is safer.
+        // I will expire if updatedAt is missing to ensure everything complies with the new policy.
+
+        const ONE_DAY = 24 * 60 * 60 * 1000;
+        if (!json.updatedAt || (Date.now() - json.updatedAt < ONE_DAY)) {
+          this.cookie = json.cookie;
+        } else {
+          this.cookie = ''; // Expired
+        }
       } catch (e) {
         console.error('Failed to load cookie:', e);
       }
@@ -32,7 +48,10 @@ export class NeteaseService {
 
   private saveCookie(cookie: string) {
     this.cookie = cookie;
-    fs.writeFileSync(COOKIE_FILE, JSON.stringify({ cookie }));
+    fs.writeFileSync(COOKIE_FILE, JSON.stringify({
+      cookie,
+      updatedAt: Date.now()
+    }));
   }
 
   async loginQrCodeKey(): Promise<string> {

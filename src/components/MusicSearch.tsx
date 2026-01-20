@@ -48,7 +48,7 @@ export function MusicSearch() {
                     type="text"
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
-                    placeholder="Search for music (e.g. Zhou Jielun)"
+                    placeholder="搜索音乐 (如: 周杰伦)"
                     className="flex-1 p-2 border rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
@@ -56,7 +56,7 @@ export function MusicSearch() {
                     disabled={loading}
                     className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                 >
-                    {loading ? <Loader2 className="animate-spin" /> : 'Search'}
+                    {loading ? <Loader2 className="animate-spin" /> : '搜索'}
                 </button>
             </form>
 
@@ -79,10 +79,10 @@ export function MusicSearch() {
                             onClick={() => handleSync(item)}
                             disabled={syncStatus[item.id] === 'syncing' || syncStatus[item.id] === 'success'}
                             className={`p-2 rounded-full transition ${syncStatus[item.id] === 'success'
-                                    ? 'bg-green-100 text-green-600'
-                                    : syncStatus[item.id] === 'error'
-                                        ? 'bg-red-100 text-red-600'
-                                        : 'bg-gray-100 hover:bg-blue-50 text-blue-600'
+                                ? 'bg-green-100 text-green-600'
+                                : syncStatus[item.id] === 'error'
+                                    ? 'bg-red-100 text-red-600'
+                                    : 'bg-gray-100 hover:bg-blue-50 text-blue-600'
                                 }`}
                         >
                             {syncStatus[item.id] === 'syncing' ? (
@@ -99,7 +99,7 @@ export function MusicSearch() {
                 ))}
 
                 {results.length === 0 && !loading && keyword && (
-                    <p className="text-center text-gray-500">No results found.</p>
+                    <p className="text-center text-gray-500">未找到结果。</p>
                 )}
             </div>
         </div>

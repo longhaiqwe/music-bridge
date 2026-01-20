@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LoginPanel } from '@/components/LoginPanel';
 import { MusicSearch } from '@/components/MusicSearch';
 import { ArtistSync } from '@/components/ArtistSync';
@@ -11,6 +11,17 @@ export default function Home() {
 
   const [activeTab, setActiveTab] = useState<'single' | 'artist'>('artist');
 
+  useEffect(() => {
+    // Check if we already have a session
+    fetch('/api/user')
+      .then((res) => {
+        if (res.ok) {
+          setIsLogged(true);
+        }
+      })
+      .catch((err) => console.error('Failed to check login status', err));
+  }, []);
+
   return (
     <main className="min-h-screen bg-gray-50 flex flex-col items-center py-12">
       <div className="text-center mb-10">
@@ -18,7 +29,7 @@ export default function Home() {
           <CloudLightning className="w-10 h-10" />
           MusicBridge
         </h1>
-        <p className="text-gray-600 mt-2">Sync your favorite music to Netease Cloud Disk effortlessly.</p>
+        <p className="text-gray-600 mt-2">轻松同步你喜欢的音乐到网易云音乐云盘。</p>
       </div>
 
       <div className="w-full max-w-4xl px-4 grid gap-8">
@@ -31,7 +42,7 @@ export default function Home() {
         {isLogged && (
           <div className="animate-fade-in-up space-y-6">
             <div className="bg-green-100 border border-green-200 text-green-700 px-4 py-2 rounded flex items-center justify-center gap-2">
-              <span>✅ Logged in to Netease Cloud Music</span>
+              <span>✅ 已登录网易云音乐</span>
             </div>
 
             {/* Tabs */}
@@ -43,7 +54,7 @@ export default function Home() {
                   : 'text-gray-500 hover:bg-gray-50'
                   }`}
               >
-                Artist Sync
+                歌手同步
               </button>
               <button
                 onClick={() => setActiveTab('single')}
@@ -52,7 +63,7 @@ export default function Home() {
                   : 'text-gray-500 hover:bg-gray-50'
                   }`}
               >
-                Single Song Search
+                单曲搜索
               </button>
             </div>
 
@@ -65,8 +76,8 @@ export default function Home() {
         {!isLogged && (
           <div className="opacity-50 pointer-events-none filter blur-sm">
             <div className="flex bg-white p-1 rounded-xl shadow-sm border mb-6">
-              <div className="flex-1 py-2 text-center text-gray-400 font-semibold">Artist Sync</div>
-              <div className="flex-1 py-2 text-center text-gray-400 font-semibold">Single Search</div>
+              <div className="flex-1 py-2 text-center text-gray-400 font-semibold">歌手同步</div>
+              <div className="flex-1 py-2 text-center text-gray-400 font-semibold">单曲搜索</div>
             </div>
             <MusicSearch />
           </div>
@@ -74,7 +85,7 @@ export default function Home() {
       </div>
 
       <footer className="mt-auto py-6 text-gray-400 text-sm">
-        <p>© 2026 MusicBridge. Use with standard Youtube & Netease accounts.</p>
+        <p>© 2026 MusicBridge. 请使用标准 YouTube 和网易云音乐账号。</p>
       </footer>
     </main>
   );
