@@ -49,7 +49,7 @@ export class YoutubeSource implements MusicSource {
 
         console.log(`[YoutubeSource] Downloading: ${info.name} (${info.id})`);
 
-        return new Promise((resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             try {
                 const videoUrl = `https://www.youtube.com/watch?v=${info.originalId}`;
 
@@ -66,9 +66,28 @@ export class YoutubeSource implements MusicSource {
                     console.warn('[YoutubeSource] Failed to parse YOUTUBE_COOKIES:', e);
                 }
 
-                const audioStream = ytdl(videoUrl, {
+                // Debug: Get video info first
+                console.log(`[YoutubeSource] Fetching info for ${videoUrl}...`);
+                const infoResult = await ytdl.getInfo(videoUrl, { agent });
+
+                if (!infoResult.formats || infoResult.formats.length === 0) {
+                    throw new Error('No formats found for video');
+                }
+
+                console.log(`[YoutubeSource] Found ${infoResult.formats.length} formats`);
+                const audioFormats = ytdl.filterFormats(infoResult.formats, 'audioonly');
+                console.log(`[YoutubeSource] Found ${audioFormats.length} audio-only formats`);
+
+                if (audioFormats.length === 0) {
+                    // Fallback: try capturing any audio
+                    console.warn('[YoutubeSource] No audioonly formats, trying audioandvideo');
+                }
+
+                const audioStream = ytdl.downloadFromInfo(infoResult, {
                     quality: 'highestaudio',
                     filter: 'audioonly',
+                    // If no audioonly, ytdl might throw, but let's stick to standard first
+                    // or we can custom filter
                     agent
                 });
 
