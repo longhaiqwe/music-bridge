@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.13.2",
     "cheerio": "^1.1.2",
     "google-sr": "^6.0.0",
@@ -21,8 +20,7 @@
     "qq-music-api": "^1.1.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "undici": "^7.18.2",
-    "youtube-sr": "^4.3.12"
+    "undici": "^7.18.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
