@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Loader2, Music, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, Music, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft, X } from 'lucide-react';
 
 interface Artist {
     id: number;
@@ -24,6 +24,10 @@ export function ArtistSync() {
     const [currentSong, setCurrentSong] = useState('');
     const [statusMessage, setStatusMessage] = useState('初始化中...');
 
+    // Cache all songs to support removal/replenishment
+    const [allCachedSongs, setAllCachedSongs] = useState<any[]>([]);
+    const [ignoredSongIds, setIgnoredSongIds] = useState<Set<number>>(new Set());
+
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!keyword) return;
@@ -31,6 +35,8 @@ export function ArtistSync() {
         setArtists([]);
         setSelectedArtist(null);
         setToSyncSongs([]);
+        setAllCachedSongs([]);
+        setIgnoredSongIds(new Set());
         try {
             const res = await fetch(`/api/artist/search?q=${encodeURIComponent(keyword)}`);
             const data = await res.json();
@@ -40,19 +46,7 @@ export function ArtistSync() {
                 const firstArtist = data[0];
                 setSelectedArtist(firstArtist);
 
-                // Immediately fetch songs for the first artist
-                setLoadingPreview(true);
-                try {
-                    const songsRes = await fetch(`/api/artist/top-songs?id=${firstArtist.id}`);
-                    const songsData = await songsRes.json();
-                    if (Array.isArray(songsData)) {
-                        setToSyncSongs(songsData.slice(0, Number(syncCount)));
-                    }
-                } catch (e) {
-                    console.error(e);
-                } finally {
-                    setLoadingPreview(false);
-                }
+                // Fetching is now handled by useEffect
             } else {
                 alert('未找到相关歌手');
             }
@@ -65,25 +59,46 @@ export function ArtistSync() {
     };
 
     // Re-fetch songs if syncCount changes and we have an artist
+    // 1. Fetch songs when selectedArtist changes
     useEffect(() => {
-        if (selectedArtist && syncStatus === 'idle') {
-            const fetchSongs = async () => {
-                setLoadingPreview(true);
-                try {
-                    const res = await fetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
-                    const data = await res.json();
-                    if (Array.isArray(data)) {
-                        setToSyncSongs(data.slice(0, Number(syncCount)));
-                    }
-                } catch (e) {
-                    console.error(e);
-                } finally {
-                    setLoadingPreview(false);
+        if (!selectedArtist) return;
+
+        const fetchSongs = async () => {
+            setLoadingPreview(true);
+            try {
+                const res = await fetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    setAllCachedSongs(data);
                 }
-            };
-            fetchSongs();
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoadingPreview(false);
+            }
+        };
+
+        fetchSongs();
+    }, [selectedArtist?.id]);
+
+    // 2. Update toSyncSongs when cache, ignore list, or count changes
+    useEffect(() => {
+        if (allCachedSongs.length === 0) {
+            setToSyncSongs([]);
+            return;
         }
-    }, [syncCount, selectedArtist?.id]); // Depend on ID to avoid loop if object ref changes
+
+        const filtered = allCachedSongs.filter(song => !ignoredSongIds.has(song.id));
+        const limit = typeof syncCount === 'number' ? syncCount : 0;
+        setToSyncSongs(filtered.slice(0, limit));
+
+    }, [allCachedSongs, ignoredSongIds, syncCount]);
+
+    const handleRemoveSong = (songId: number) => {
+        const newSet = new Set(ignoredSongIds);
+        newSet.add(songId);
+        setIgnoredSongIds(newSet);
+    };
 
 
     const handleStartSync = async () => {
@@ -261,14 +276,31 @@ export function ArtistSync() {
                                     ) : (
                                         toSyncSongs.map((song, i) => (
                                             <div key={song.id} className="group flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
-                                                <div className="flex items-center gap-4 overflow-hidden">
-                                                    <span className="text-gray-400 font-mono w-6 text-right font-medium">{i + 1}</span>
+                                                <div className="flex items-center gap-4 overflow-hidden flex-1">
+                                                    <span className="text-gray-400 font-mono w-6 text-right font-medium flex-shrink-0">{i + 1}</span>
+                                                    {song.al?.picUrl && (
+                                                        <img
+                                                            src={song.al.picUrl}
+                                                            alt={song.al.name}
+                                                            className="w-10 h-10 rounded-md object-cover border border-gray-100 flex-shrink-0"
+                                                            loading="lazy"
+                                                        />
+                                                    )}
                                                     <div className="truncate font-medium text-gray-700 group-hover:text-blue-700">
                                                         {song.name}
                                                     </div>
                                                 </div>
-                                                <div className="text-xs text-gray-400 font-mono">
-                                                    {(song.dt / 1000 / 60).toFixed(2)} min
+                                                <div className="flex items-center gap-4 pl-4 shrink-0">
+                                                    <div className="text-sm text-gray-500 max-w-[200px] truncate" title={song.al?.name}>
+                                                        {song.al?.name}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleRemoveSong(song.id)}
+                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                        title="移除此歌曲"
+                                                    >
+                                                        <X className="w-4 h-4" />
+                                                    </button>
                                                 </div>
                                             </div>
                                         ))
