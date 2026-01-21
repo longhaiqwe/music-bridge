@@ -7,6 +7,7 @@ export interface SongMetadata {
     artist: string;
     album?: string;
     coverUrl?: string;
+    lyrics?: string;
 }
 
 /**
@@ -61,6 +62,14 @@ export async function embedMetadata(
             } catch (e) {
                 console.warn('[embedMetadata] Failed to fetch cover art:', e);
             }
+        }
+
+        // Add Lyrics
+        if (metadata.lyrics) {
+            tags.unsynchronisedLyrics = {
+                language: 'eng',
+                text: metadata.lyrics
+            };
         }
 
         // Write tags

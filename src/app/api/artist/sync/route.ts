@@ -134,11 +134,26 @@ export async function POST(request: Request) {
                         const albumName = albumObj.name || '';
                         const coverUrl = albumObj.picUrl;
 
+                        // Fetch Lyrics (We have the direct NetEase ID)
+                        let lyrics = '';
+                        try {
+                            log(`Fetching lyrics for ${song.name}...`);
+                            lyrics = await neteaseService.getLyric(song.id);
+                            if (lyrics) {
+                                log(`Lyrics found (${lyrics.length} chars).`);
+                            } else {
+                                log(`No lyrics found.`);
+                            }
+                        } catch (e: any) {
+                            log(`Failed to fetch lyrics: ${e.message}`);
+                        }
+
                         await embedMetadata(rawPath, tmpPath, {
                             title: song.name,
                             artist: songArtists,
                             album: albumName,
-                            coverUrl: coverUrl
+                            coverUrl: coverUrl,
+                            lyrics: lyrics
                         });
 
                         // Upload to Cloud

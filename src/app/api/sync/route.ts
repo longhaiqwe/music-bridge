@@ -26,6 +26,32 @@ export async function POST(request: Request) {
         // 2. Embed metadata
         step = 'metadata';
         console.log('Embedding metadata...');
+
+        // Fetch Lyrics (Best Effort)
+        let lyrics = '';
+        try {
+            console.log(`[Lyrics] Searching NetEase for: ${info.name} ${info.artist}`);
+            const query = `${info.name} ${info.artist}`;
+            const searchRes = await neteaseService.searchSong(query);
+
+            if (searchRes && searchRes.length > 0) {
+                // Determine best match? For now just pick first
+                const bestMatch = searchRes[0];
+                console.log(`[Lyrics] Found match: ${bestMatch.name} (ID: ${bestMatch.id})`);
+
+                lyrics = await neteaseService.getLyric(bestMatch.id);
+                if (lyrics) {
+                    console.log(`[Lyrics] Successfully fetched lyrics (${lyrics.length} chars)`);
+                } else {
+                    console.log('[Lyrics] Lyrics empty');
+                }
+            } else {
+                console.log('[Lyrics] No match found on NetEase');
+            }
+        } catch (e) {
+            console.warn('[Lyrics] Failed to fetch lyrics', e);
+        }
+
         const ext = path.extname(rawFilePath).replace('.', '');
         const finalFileName = getSafeFileName(info.name, ext);
         const finalFilePath = path.join(TMP_DIR, finalFileName);
@@ -34,7 +60,8 @@ export async function POST(request: Request) {
             title: info.name,
             artist: info.artist,
             album: info.album || '',
-            coverUrl: info.coverUrl
+            coverUrl: info.coverUrl,
+            lyrics: lyrics // Embed lyrics
         });
 
         // Clean up raw file logic removed to preserve cache

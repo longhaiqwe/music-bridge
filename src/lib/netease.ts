@@ -164,6 +164,36 @@ export class NeteaseService {
     }
   }
 
+  async searchSong(keyword: string): Promise<any[]> {
+    if (!this.cookie) throw new Error('Not logged in');
+    try {
+      const res = await NeteaseCloudMusicApi.cloudsearch({
+        keywords: keyword,
+        type: 1, // 1: song
+        limit: 5,
+        cookie: this.cookie
+      }) as any;
+      return res.body.result?.songs || [];
+    } catch (e) {
+      console.error('Search song failed:', e);
+      return [];
+    }
+  }
+
+  async getLyric(songId: string | number): Promise<string> {
+    // Note: Lyric API works without login sometimes, but better safe
+    try {
+      const res = await NeteaseCloudMusicApi.lyric({
+        id: songId,
+        cookie: this.cookie
+      }) as any;
+      return res.body.lrc?.lyric || '';
+    } catch (e) {
+      console.error('Get lyric failed:', e);
+      return '';
+    }
+  }
+
   async getArtistTopSongs(artistId: string | number): Promise<any[]> {
     if (!this.cookie) throw new Error('Not logged in');
     try {
