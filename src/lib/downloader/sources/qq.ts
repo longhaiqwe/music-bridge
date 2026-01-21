@@ -30,8 +30,15 @@ export class QQMusicSource implements MusicSource {
         // PROXY DOWNLOAD STRATEGY
         console.log(`[QQMusicSource] Proxying download for: ${info.name} - ${info.artist} to YouTube`);
 
+        const isLiveRequest = /live|concert|现场|演唱会/i.test(info.name);
+
         // Construct a search query for YouTube
-        const query = `${info.name} ${info.artist} audio`;
+        let query = `${info.name} ${info.artist}`;
+        if (!isLiveRequest) {
+            query += ' official audio';
+        } else {
+            query += ' live audio';
+        }
 
         try {
             // Search YouTube for the best match using the metadata from QQ Music
@@ -41,8 +48,22 @@ export class QQMusicSource implements MusicSource {
                 throw new Error(`No matching song found on YouTube for query: "${query}"`);
             }
 
-            // Pick the first result
-            const bestMatch = ytResults[0];
+            // Filter logic: If we didn't ask for a live version, try to find one that isn't live
+            let bestMatch = ytResults[0];
+
+            if (!isLiveRequest) {
+                // Try to find a result that doesn't contain "Live", "Concert", "现场" in the title
+                const nonLiveMatch = ytResults.find(res => !/live|concert|现场|演唱会/i.test(res.name));
+                if (nonLiveMatch) {
+                    bestMatch = nonLiveMatch;
+                    console.log(`[QQMusicSource] Selected non-live match: ${bestMatch.name}`);
+                } else {
+                    console.warn(`[QQMusicSource] Could not find a strictly non-live match, using top result: ${bestMatch.name}`);
+                }
+            } else {
+                console.log(`[QQMusicSource] Live version requested, using top result: ${bestMatch.name}`);
+            }
+
             console.log(`[QQMusicSource] Found YouTube match: ${bestMatch.name} (${bestMatch.id})`);
 
             // Delegate download to YoutubeSource

@@ -1,5 +1,5 @@
 import { MusicInfo, MusicSource } from './types';
-import { YoutubeSource } from './sources/youtube';
+
 import { QQMusicSource } from './sources/qq';
 
 export class DownloadManager {
@@ -7,7 +7,7 @@ export class DownloadManager {
 
     constructor() {
         this.registerSource(new QQMusicSource());
-        this.registerSource(new YoutubeSource());
+
     }
 
     registerSource(source: MusicSource) {
