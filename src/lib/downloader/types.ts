@@ -7,6 +7,7 @@ export interface MusicInfo {
     coverUrl?: string; // High quality cover
     source: string; // 'youtube', 'myfreemp3', etc.
     originalId: string; // ID in the source system
+    filename?: string; // Optional preferred filename (e.g. "Song - Artist")
 }
 
 export interface SearchResult {

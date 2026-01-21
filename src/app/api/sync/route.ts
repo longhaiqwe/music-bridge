@@ -37,10 +37,10 @@ export async function POST(request: Request) {
             coverUrl: info.coverUrl
         });
 
-        // Clean up raw file (only if different from final)
-        if (rawFilePath !== finalFilePath) {
-            try { fs.unlinkSync(rawFilePath); } catch { }
-        }
+        // Clean up raw file logic removed to preserve cache
+        // if (rawFilePath !== finalFilePath) {
+        //    try { fs.unlinkSync(rawFilePath); } catch { }
+        // }
 
         // 3. Upload
         step = 'upload';

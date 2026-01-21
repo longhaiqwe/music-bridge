@@ -1,4 +1,5 @@
 import { MusicInfo, MusicSource } from '../types';
+import { getSafeFileName } from '../../metadata';
 import { exec } from 'child_process';
 import util from 'util';
 import path from 'path';
@@ -81,7 +82,15 @@ export class YoutubeSource implements MusicSource {
     }
 
     async getDownloadUrl(info: MusicInfo): Promise<string> {
-        const filePath = path.join(TMP_DIR, `${info.id}.mp3`);
+        // Determine the preferred filename base (Song - Artist) or fallback to ID
+        let baseName = info.filename;
+        if (!baseName && info.name) {
+            baseName = `${info.name} - ${info.artist || 'Unknown'}`;
+        }
+        baseName = baseName || info.id;
+        // We enforce mp3 conversion, so we look for that
+        const targetFilename = getSafeFileName(baseName, 'mp3');
+        const filePath = path.join(TMP_DIR, targetFilename);
 
         // If file exists, return it
         if (fs.existsSync(filePath)) {
@@ -95,8 +104,13 @@ export class YoutubeSource implements MusicSource {
             try {
                 console.log(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
 
+                // Construct output template for yt-dlp
+                // We use the safe basename + dynamic extension, though we requested mp3
+                const safeBaseName = path.basename(targetFilename, '.mp3');
+                const outputTemplate = path.join(TMP_DIR, `${safeBaseName}.%(ext)s`);
+
                 // Construct command
-                let cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`;
+                let cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputTemplate}" "https://www.youtube.com/watch?v=${info.originalId}"`;
                 if (cookieFile) {
                     cmd += ` --cookies "${cookieFile}"`;
                 }
@@ -108,9 +122,10 @@ export class YoutubeSource implements MusicSource {
                     return filePath;
                 }
 
-                // Fallback: check other extensions
+                // Fallback: check other extensions if mp3 failed but something else arrived
+                // Look for files starting with our safe basename
                 const files = fs.readdirSync(TMP_DIR);
-                const downloaded = files.find(f => f.startsWith(info.id));
+                const downloaded = files.find(f => f.startsWith(safeBaseName));
                 if (downloaded) {
                     return path.join(TMP_DIR, downloaded);
                 }
