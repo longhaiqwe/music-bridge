@@ -145,20 +145,32 @@ export async function POST(request: Request) {
                         log(`Uploading ${song.name}...`);
                         const uploadRes = await neteaseService.uploadToCloudDisk(tmpPath);
 
-                        if (uploadRes?.songId) {
-                            cloudIds.push(uploadRes.songId);
-                            log(`Uploaded success! Cloud ID: ${uploadRes.songId}`);
-                            results.success++;
-                        } else if (uploadRes?.privateCloud?.songId) {
-                            cloudIds.push(uploadRes.privateCloud.songId);
-                            log(`Uploaded success! Cloud ID: ${uploadRes.privateCloud.songId}`);
-                            results.success++;
+                        // Debug: Log complete response for the first few uploads to understand structure
+                        if (i < 3) {
+                            console.log(`[Upload Debug] Response for ${song.name}:`, JSON.stringify(uploadRes, null, 2));
+                        }
+
+                        // PRIORITIZE privateCloud.songId over songId
+                        // songId is often the "matched" public ID (which might be grey/unavailable)
+                        // privateCloud.songId is the ID of the file we just uploaded
+                        let finalCloudId = null;
+
+                        if (uploadRes?.privateCloud?.songId) {
+                            finalCloudId = uploadRes.privateCloud.songId;
+                            log(`Uploaded success! Using Private Cloud ID: ${finalCloudId}`);
+                        } else if (uploadRes?.songId) {
+                            finalCloudId = uploadRes.songId;
+                            log(`Uploaded success! Using Public Match ID: ${finalCloudId} (Warning: might be matched to public song)`);
                         } else if (uploadRes?.id) {
-                            cloudIds.push(uploadRes.id);
-                            log(`Uploaded success! Cloud ID: ${uploadRes.id}`);
+                            finalCloudId = uploadRes.id;
+                            log(`Uploaded success! Using General ID: ${finalCloudId}`);
+                        }
+
+                        if (finalCloudId) {
+                            cloudIds.push(finalCloudId);
                             results.success++;
                         } else {
-                            log(`Upload response might be incomplete(check logs).`, uploadRes);
+                            log(`Upload response ambiguous (check logs).`, uploadRes);
                             results.failed++;
                             results.failedSongs.push(`${song.name} (Unknown upload response)`);
                         }

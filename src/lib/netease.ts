@@ -133,6 +133,21 @@ export class NeteaseService {
     throw lastError;
   }
 
+  async getCloudDiskSongs(limit: number = 200, offset: number = 0): Promise<any[]> {
+    if (!this.cookie) throw new Error('Not logged in');
+    try {
+      const res = await NeteaseCloudMusicApi.user_cloud({
+        limit,
+        offset,
+        cookie: this.cookie
+      }) as any;
+      return res.body.data || [];
+    } catch (e) {
+      console.error('Get cloud disk songs failed:', e);
+      return [];
+    }
+  }
+
   async searchArtist(keyword: string): Promise<any[]> {
     if (!this.cookie) throw new Error('Not logged in');
     try {
@@ -194,30 +209,41 @@ export class NeteaseService {
 
   async addSongsToPlaylist(pid: string | number, songIds: (string | number)[]): Promise<boolean> {
     if (!this.cookie) throw new Error('Not logged in');
-    try {
-      // API expects comma separated string of ids
-      const tracks = songIds.join(',');
-      const res = await NeteaseCloudMusicApi.playlist_tracks({
-        op: 'add',
-        pid,
-        tracks,
-        cookie: this.cookie
-      }) as any;
 
-      if (res.body.code !== 200) {
-        console.error(`Add songs failed. Code: ${res.body.code}, Message: ${res.body.message}`);
+    // API expects comma separated string of ids
+    const tracks = songIds.join(',');
+    const MAX_RETRIES = 3;
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        if (i > 0) {
+          console.log(`Retrying add songs to playlist (${i + 1}/${MAX_RETRIES})...`);
+          await new Promise(r => setTimeout(r, 1500 * i));
+        }
+
+        const res = await NeteaseCloudMusicApi.playlist_tracks({
+          op: 'add',
+          pid,
+          tracks,
+          cookie: this.cookie
+        }) as any;
+
+        if (res && res.body && (res.body.code === 200 || res.body.code === 502)) {
+          if (res.body.code === 200) {
+            return true;
+          }
+          console.log(`Add songs API returned code ${res.body.code}:`, res.body);
+        } else {
+          console.error(`Add songs failed. Full Response:`, JSON.stringify(res, null, 2));
+        }
+      } catch (e: any) {
+        console.error(`Add songs to playlist failed (attempt ${i + 1}/${MAX_RETRIES}):`, e);
+        if (i === MAX_RETRIES - 1) return false;
       }
-      return res.body.code === 200;
-    } catch (e: any) {
-      // Often returns 502 if some songs are invalid, but might still partially succeed. 
-      // For now logging it.
-      console.error('Add songs to playlist failed:', e);
-      // Sometimes the API returns 502/200 OK mixed logic in different versions, 
-      // but typically 200 means full success.
-      // We will return false if strictly failed.
-      return false;
     }
+    return false;
   }
 }
+
 
 export const neteaseService = new NeteaseService();
