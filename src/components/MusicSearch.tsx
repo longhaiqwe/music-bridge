@@ -71,7 +71,7 @@ export function MusicSearch() {
                             )}
                             <div>
                                 <h3 className="font-semibold text-gray-800">{item.name}</h3>
-                                <p className="text-sm text-gray-500">{item.artist} • {item.source}</p>
+                                <p className="text-sm text-gray-500">{item.artist}{item.album ? ` • ${item.album}` : ''}</p>
                             </div>
                         </div>
 
