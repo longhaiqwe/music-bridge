@@ -101,19 +101,36 @@ export class NeteaseService {
     const fileBuffer = fs.readFileSync(filePath);
     const fileName = path.basename(filePath);
 
-    try {
-      const res = await NeteaseCloudMusicApi.cloud({
-        cookie: this.cookie,
-        songFile: {
-          name: fileName,
-          data: fileBuffer
+    let lastError;
+    const MAX_RETRIES = 3;
+
+    for (let i = 0; i < MAX_RETRIES; i++) {
+      try {
+        if (i > 0) {
+          console.log(`Retrying upload (${i + 1}/${MAX_RETRIES})...`);
+          // Wait a bit before retry (1s, 2s, etc.)
+          await new Promise(r => setTimeout(r, 1000 * i));
         }
-      }) as any;
-      return res.body;
-    } catch (e) {
-      console.error('Upload failed:', e);
-      throw e;
+
+        const res = await NeteaseCloudMusicApi.cloud({
+          cookie: this.cookie,
+          songFile: {
+            name: fileName,
+            data: fileBuffer
+          }
+        }) as any;
+        return res.body;
+      } catch (e: any) {
+        console.error(`Upload failed (attempt ${i + 1}/${MAX_RETRIES}):`, e.message || e);
+        lastError = e;
+
+        // If it's not a network/server error (e.g. 4xx), maybe don't retry? 
+        // But usually "Client network socket disconnected" or 502 are worth retrying.
+        // Safe to retry most upload errors.
+      }
     }
+
+    throw lastError;
   }
 
   async searchArtist(keyword: string): Promise<any[]> {

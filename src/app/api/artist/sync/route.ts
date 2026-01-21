@@ -53,9 +53,17 @@ export async function POST(request: Request) {
                 const cloudIds: any[] = [];
 
                 // 2. Loop through songs
+                const results = {
+                    success: 0,
+                    failed: 0,
+                    failedSongs: [] as string[]
+                };
+
                 for (let i = 0; i < targetSongs.length; i++) {
                     const song = targetSongs[i];
                     const query = `${song.name} ${artistName}`;
+                    let rawPath = '';
+                    let tmpPath = '';
 
                     try {
                         log(`[${i + 1}/${targetSongs.length}] Processing: ${song.name}`);
@@ -64,6 +72,8 @@ export async function POST(request: Request) {
                         const searchResults = await downloadManager.search(query);
                         if (!searchResults || searchResults.length === 0) {
                             log(`No results found for ${song.name}`);
+                            results.failed++;
+                            results.failedSongs.push(`${song.name} (No results)`);
                             continue;
                         }
 
@@ -84,10 +94,11 @@ export async function POST(request: Request) {
                         const downloadUrl = await downloadManager.getDownloadUrl(bestMatch);
                         if (!downloadUrl) {
                             log(`Could not get download URL for ${song.name}`);
+                            results.failed++;
+                            results.failedSongs.push(`${song.name} (Download URL failed)`);
                             continue;
                         }
 
-                        // Download to temp
                         // Download to temp
                         // Determine file extension from downloaded path
                         let ext = path.extname(downloadUrl).replace('.', '') || 'webm';
@@ -100,8 +111,8 @@ export async function POST(request: Request) {
                         }
 
                         const safeFileName = getSafeFileName(song.name, ext);
-                        const rawPath = path.join(TMP_DIR, `raw_${Date.now()}.${ext}`);
-                        const tmpPath = path.join(TMP_DIR, safeFileName);
+                        rawPath = path.join(TMP_DIR, `raw_${Date.now()}.${ext}`);
+                        tmpPath = path.join(TMP_DIR, safeFileName);
 
                         if (fs.existsSync(downloadUrl)) {
                             // Copy local file to rawPath
@@ -112,8 +123,7 @@ export async function POST(request: Request) {
                         }
 
                         // Embed proper metadata so NetEase Cloud can display correctly
-                        log(`Embedding metadata for ${song.name
-                            }...`);
+                        log(`Embedding metadata for ${song.name}...`);
 
                         // Fix: Handle different property names (Netease vs QQ vs Standard)
                         // Netease/QQ often use 'ar' for artists and 'al' for album
@@ -131,38 +141,51 @@ export async function POST(request: Request) {
                             coverUrl: coverUrl
                         });
 
-                        // Clean up raw file
-                        try { fs.unlinkSync(rawPath); } catch { }
-
                         // Upload to Cloud
                         log(`Uploading ${song.name}...`);
                         const uploadRes = await neteaseService.uploadToCloudDisk(tmpPath);
 
-                        // Clean up temp file
-                        try { fs.unlinkSync(tmpPath); } catch { }
-
                         if (uploadRes?.songId) {
                             cloudIds.push(uploadRes.songId);
                             log(`Uploaded success! Cloud ID: ${uploadRes.songId}`);
+                            results.success++;
                         } else if (uploadRes?.privateCloud?.songId) {
                             cloudIds.push(uploadRes.privateCloud.songId);
                             log(`Uploaded success! Cloud ID: ${uploadRes.privateCloud.songId}`);
-                            // Sometimes it returns just 'id' or other structures, let's try to cover more if needed
+                            results.success++;
                         } else if (uploadRes?.id) {
                             cloudIds.push(uploadRes.id);
                             log(`Uploaded success! Cloud ID: ${uploadRes.id}`);
+                            results.success++;
                         } else {
-                            // Try to inspect response for song ID
-                            // Sometimes it's in a different field
                             log(`Upload response might be incomplete(check logs).`, uploadRes);
-                            // If we can't find ID, we can't add to playlist.
-                            // But let's hope it's standard structure
+                            results.failed++;
+                            results.failedSongs.push(`${song.name} (Unknown upload response)`);
                         }
 
                     } catch (err: any) {
                         log(`Error processing ${song.name}: ${err.message}`);
+                        results.failed++;
+                        results.failedSongs.push(`${song.name} (${err.message})`);
+                    } finally {
+                        // Clean up temp files strictly
+                        if (rawPath && fs.existsSync(rawPath)) {
+                            try { fs.unlinkSync(rawPath); } catch { }
+                        }
+                        if (tmpPath && fs.existsSync(tmpPath)) {
+                            try { fs.unlinkSync(tmpPath); } catch { }
+                        }
                     }
                 }
+
+                // Log Final Summary
+                log('----------------------------------------');
+                log(`Sync Summary: Success: ${results.success}, Failed: ${results.failed}`);
+                if (results.failed > 0) {
+                    log('Failed Songs:');
+                    results.failedSongs.forEach(s => log(` - ${s}`));
+                }
+                log('----------------------------------------');
 
                 // 3. Create Playlist
                 if (cloudIds.length > 0) {

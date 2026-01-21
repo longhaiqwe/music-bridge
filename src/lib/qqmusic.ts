@@ -37,12 +37,19 @@ export class QQMusicService {
                 // This is the simplest way to get "Hot Songs".
 
                 // Filter to ensure the song artist matches the requested artist (fuzzy match)
+                // Normalize function: remove spaces and convert to lower case
+                const normalize = (str: string) => str.toLowerCase().replace(/\s+/g, '');
+                const normalizedArtistName = normalize(artistName);
+
                 // @ts-ignore
                 const filtered = list.filter(item => {
                     // @ts-ignore
                     const singers = item.singer || [];
                     // @ts-ignore
-                    return singers.some(s => s.name.includes(artistName) || artistName.includes(s.name));
+                    return singers.some(s => {
+                        const sName = normalize(s.name);
+                        return sName.includes(normalizedArtistName) || normalizedArtistName.includes(sName);
+                    });
                 });
 
                 // @ts-ignore
