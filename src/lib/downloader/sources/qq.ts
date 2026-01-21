@@ -33,7 +33,7 @@ export class QQMusicSource implements MusicSource {
         const isLiveRequest = /live|concert|现场|演唱会/i.test(info.name);
 
         // Construct a search query for YouTube
-        let query = `${info.name} ${info.artist}`;
+        let query = `${info.name} ${info.artist} ${info.album}`;
         if (!isLiveRequest) {
             query += ' official audio';
         } else {
