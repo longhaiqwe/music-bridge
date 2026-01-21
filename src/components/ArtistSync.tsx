@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Loader2, Music, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Loader2, Music, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft } from 'lucide-react';
 
 interface Artist {
     id: number;
@@ -19,9 +19,10 @@ export function ArtistSync() {
     const [syncCount, setSyncCount] = useState<number | ''>(10);
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [toSyncSongs, setToSyncSongs] = useState<any[]>([]); // Songs to be synced
-    const [isSyncing, setIsSyncing] = useState(false);
-    const [logs, setLogs] = useState<string[]>([]);
-    const logsEndRef = useRef<HTMLDivElement>(null);
+    const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+    const [progress, setProgress] = useState({ current: 0, total: 10 });
+    const [currentSong, setCurrentSong] = useState('');
+    const [statusMessage, setStatusMessage] = useState('初始化中...');
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -65,7 +66,7 @@ export function ArtistSync() {
 
     // Re-fetch songs if syncCount changes and we have an artist
     useEffect(() => {
-        if (selectedArtist && !isSyncing) {
+        if (selectedArtist && syncStatus === 'idle') {
             const fetchSongs = async () => {
                 setLoadingPreview(true);
                 try {
@@ -88,8 +89,11 @@ export function ArtistSync() {
     const handleStartSync = async () => {
         if (!selectedArtist) return;
 
-        setIsSyncing(true);
-        setLogs([]);
+        setSyncStatus('syncing');
+
+        setProgress({ current: 0, total: toSyncSongs.length || Number(syncCount) });
+        setStatusMessage('准备开始...');
+        setCurrentSong('');
 
         try {
             const res = await fetch('/api/artist/sync', {
@@ -119,7 +123,27 @@ export function ArtistSync() {
                     try {
                         const event = JSON.parse(line);
                         if (event.type === 'log') {
-                            setLogs(prev => [...prev, event.message]);
+                            const msg = event.message as string;
+
+
+                            // Parse progress
+                            // Log format: [1/10] Processing: SongName
+                            const progressMatch = msg.match(/\[(\d+)\/(\d+)\] Processing: (.+)/);
+                            if (progressMatch) {
+                                setProgress({
+                                    current: parseInt(progressMatch[1]),
+                                    total: parseInt(progressMatch[2])
+                                });
+                                setCurrentSong(progressMatch[3]);
+                                setStatusMessage('正在搜索资源...');
+                            }
+
+                            // Parse other status updates
+                            if (msg.includes('Downloading')) setStatusMessage('正在下载音频...');
+                            if (msg.includes('Embedding metadata')) setStatusMessage('正在写入元数据...');
+                            if (msg.includes('Uploading')) setStatusMessage('正在上传到云盘...');
+                            if (msg.includes('Uploaded success')) setStatusMessage('上传成功！');
+                            if (msg.includes('Selection] Picked')) setStatusMessage('已找到最佳音源');
                         }
                     } catch (e) {
                         // Ignore parse errors for partial chunks
@@ -127,17 +151,16 @@ export function ArtistSync() {
                 });
             }
 
+            setSyncStatus('success');
+
         } catch (e: any) {
-            setLogs(prev => [...prev, `错误: ${e.message}`]);
-        } finally {
-            setIsSyncing(false);
+
+            setStatusMessage(e.message);
+            setSyncStatus('error');
         }
     };
 
-    // Auto-scroll logs
-    useEffect(() => {
-        logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [logs]);
+
 
     return (
         <div className="w-full max-w-5xl mx-auto p-6 space-y-6">
@@ -186,7 +209,7 @@ export function ArtistSync() {
                         }}
                         min={0}
                         max={500}
-                        disabled={isSyncing}
+                        disabled={syncStatus === 'syncing'}
                         className="w-full p-3 border-2 border-gray-200 rounded-xl bg-white focus:border-blue-500 focus:ring-0 outline-none text-lg"
                     />
                 </div>
@@ -196,7 +219,7 @@ export function ArtistSync() {
             <div className="relative w-full min-h-[500px] border-4 border-gray-100 rounded-2xl bg-white shadow-sm p-6 overflow-hidden flex flex-col">
 
                 {/* State 1: Empty / Initial */}
-                {!selectedArtist && !isSyncing && (
+                {!selectedArtist && syncStatus === 'idle' && (
                     <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
                         <Music className="w-20 h-20 mb-4 opacity-20" />
                         <p className="text-lg">请在上方搜索歌手，系统将自动展示热门歌曲</p>
@@ -204,7 +227,7 @@ export function ArtistSync() {
                 )}
 
                 {/* State 2: Song Preview & Sync Confirm */}
-                {selectedArtist && !isSyncing && (
+                {selectedArtist && syncStatus === 'idle' && (
                     <div className="flex-1 flex flex-col animate-fade-in">
                         <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-3">
@@ -256,21 +279,117 @@ export function ArtistSync() {
                     </div>
                 )}
 
-                {/* State 3: Syncing / Logs */}
-                {isSyncing && (
-                    <div className="flex-1 flex flex-col animate-fade-in">
-                        <h3 className="text-lg font-bold text-gray-700 mb-4 flex items-center gap-2">
-                            <Loader2 className="animate-spin text-blue-500" />
-                            正在同步...
-                        </h3>
-                        <div className="flex-1 bg-gray-900 rounded-xl p-4 font-mono text-sm overflow-y-auto shadow-inner text-green-400 space-y-1 scrollbar-thin scrollbar-thumb-gray-700">
-                            {logs.map((log, i) => (
-                                <div key={i} className="break-all border-l-2 border-transparent hover:border-green-600 pl-2 transition-colors">
-                                    <span className="opacity-50 mr-2">[{new Date().toLocaleTimeString()}]</span>
-                                    {log}
+                {/* State 3: Syncing / Progress */}
+                {syncStatus === 'syncing' && (
+                    <div className="flex-1 flex flex-col items-center justify-center animate-fade-in py-12">
+                        <div className="w-full max-w-md space-y-8 text-center">
+
+                            {/* Progress Circle or Icon */}
+                            <div className="relative mx-auto w-24 h-24">
+                                <svg className="w-full h-full transform -rotate-90">
+                                    <circle
+                                        cx="48"
+                                        cy="48"
+                                        r="40"
+                                        stroke="currentColor"
+                                        strokeWidth="8"
+                                        fill="transparent"
+                                        className="text-gray-100"
+                                    />
+                                    <circle
+                                        cx="48"
+                                        cy="48"
+                                        r="40"
+                                        stroke="currentColor"
+                                        strokeWidth="8"
+                                        fill="transparent"
+                                        strokeDasharray={251.2}
+                                        strokeDashoffset={251.2 - (251.2 * (progress.current / Math.max(progress.total, 1)))}
+                                        className="text-blue-500 transition-all duration-1000 ease-out"
+                                        strokeLinecap="round"
+                                    />
+                                </svg>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <span className="text-xl font-bold text-blue-600 font-mono">
+                                        {progress.current}/{progress.total}
+                                    </span>
                                 </div>
-                            ))}
-                            <div ref={logsEndRef} />
+                            </div>
+
+                            <div className="space-y-4">
+                                <h3 className="text-2xl font-bold text-gray-800">
+                                    正在同步...
+                                </h3>
+
+                                <div className="bg-blue-50 border border-blue-100 rounded-xl p-6 shadow-sm">
+                                    <p className="text-sm text-gray-500 uppercase tracking-wider mb-2 font-semibold">
+                                        当前正在处理
+                                    </p>
+                                    <p className="text-xl font-medium text-blue-900 truncate px-4">
+                                        {currentSong || '准备中...'}
+                                    </p>
+                                    <p className="text-sm text-blue-400 mt-2 animate-pulse">
+                                        {statusMessage}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <p className="text-xs text-gray-400 mt-8">
+                                请勿关闭页面，这可能需要几分钟...
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* State 4: Success */}
+                {syncStatus === 'success' && (
+                    <div className="flex-1 flex flex-col items-center justify-center animate-fade-in">
+                        <div className="text-center space-y-6">
+                            <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <CheckCircle2 className="w-12 h-12 text-green-600" />
+                            </div>
+                            <h2 className="text-3xl font-bold text-gray-800">同步完成!</h2>
+                            <p className="text-gray-500">
+                                已成功将 {progress.current} 首歌曲同步到您的网易云盘。
+                            </p>
+                            <button
+                                onClick={() => setSyncStatus('idle')}
+                                className="px-8 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 font-bold transition-transform active:scale-95 flex items-center gap-2 mx-auto"
+                            >
+                                <ArrowLeft className="w-5 h-5" />
+                                返回
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* State 5: Error */}
+                {syncStatus === 'error' && (
+                    <div className="flex-1 flex flex-col items-center justify-center animate-fade-in">
+                        <div className="text-center space-y-6 max-w-md mx-auto">
+                            <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <AlertCircle className="w-12 h-12 text-red-600" />
+                            </div>
+                            <h2 className="text-3xl font-bold text-gray-800">同步失败</h2>
+                            <div className="bg-red-50 p-4 rounded-xl text-red-700 border border-red-100">
+                                {statusMessage}
+                            </div>
+                            <div className="flex gap-4 justify-center">
+                                <button
+                                    onClick={() => setSyncStatus('idle')}
+                                    className="px-8 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 font-bold transition-transform active:scale-95 flex items-center gap-2"
+                                >
+                                    <ArrowLeft className="w-5 h-5" />
+                                    返回
+                                </button>
+                                <button
+                                    onClick={handleStartSync}
+                                    className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-transform active:scale-95 flex items-center gap-2"
+                                >
+                                    <RotateCcw className="w-5 h-5" />
+                                    重试
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}

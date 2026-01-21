@@ -187,6 +187,9 @@ export class NeteaseService {
         cookie: this.cookie
       }) as any;
 
+      if (res.body.code !== 200) {
+        console.error(`Add songs failed. Code: ${res.body.code}, Message: ${res.body.message}`);
+      }
       return res.body.code === 200;
     } catch (e: any) {
       // Often returns 502 if some songs are invalid, but might still partially succeed. 

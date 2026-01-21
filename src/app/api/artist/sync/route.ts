@@ -67,8 +67,18 @@ export async function POST(request: Request) {
                             continue;
                         }
 
-                        // Pick best match (simple: first one)
-                        const bestMatch = searchResults[0];
+                        // Pick best match (Strategy: Avoid Live/Concert if possible)
+                        let bestMatch = searchResults[0];
+
+                        // Filter out live versions
+                        const nonLiveMatches = searchResults.filter(res => !/live|concert|现场|演唱会/i.test(res.name) && !/live|concert|现场|演唱会/i.test(res.album));
+
+                        if (nonLiveMatches.length > 0) {
+                            bestMatch = nonLiveMatches[0];
+                            log(`[Selection] Picked non-live version: ${bestMatch.name} (from ${nonLiveMatches.length} candidates)`);
+                        } else {
+                            log(`[Selection] Only found potential live versions, using top result: ${bestMatch.name}`);
+                        }
 
                         // Get download URL
                         const downloadUrl = await downloadManager.getDownloadUrl(bestMatch);
@@ -102,13 +112,23 @@ export async function POST(request: Request) {
                         }
 
                         // Embed proper metadata so NetEase Cloud can display correctly
-                        log(`Embedding metadata for ${song.name}...`);
-                        const songArtists = song.artists?.map((a: any) => a.name).join(', ') || artistName;
+                        log(`Embedding metadata for ${song.name
+                            }...`);
+
+                        // Fix: Handle different property names (Netease vs QQ vs Standard)
+                        // Netease/QQ often use 'ar' for artists and 'al' for album
+                        const artistsList = song.ar || song.artists || [];
+                        const albumObj = song.al || song.album || {};
+
+                        const songArtists = artistsList.map((a: any) => a.name).join(', ') || artistName;
+                        const albumName = albumObj.name || '';
+                        const coverUrl = albumObj.picUrl;
+
                         await embedMetadata(rawPath, tmpPath, {
                             title: song.name,
                             artist: songArtists,
-                            album: song.album?.name || '',
-                            coverUrl: song.album?.picUrl
+                            album: albumName,
+                            coverUrl: coverUrl
                         });
 
                         // Clean up raw file
@@ -125,13 +145,16 @@ export async function POST(request: Request) {
                             cloudIds.push(uploadRes.songId);
                             log(`Uploaded success! Cloud ID: ${uploadRes.songId}`);
                         } else if (uploadRes?.privateCloud?.songId) {
-                            // Structure might vary
                             cloudIds.push(uploadRes.privateCloud.songId);
                             log(`Uploaded success! Cloud ID: ${uploadRes.privateCloud.songId}`);
+                            // Sometimes it returns just 'id' or other structures, let's try to cover more if needed
+                        } else if (uploadRes?.id) {
+                            cloudIds.push(uploadRes.id);
+                            log(`Uploaded success! Cloud ID: ${uploadRes.id}`);
                         } else {
                             // Try to inspect response for song ID
                             // Sometimes it's in a different field
-                            log(`Upload response might be incomplete (check logs).`, uploadRes);
+                            log(`Upload response might be incomplete(check logs).`, uploadRes);
                             // If we can't find ID, we can't add to playlist.
                             // But let's hope it's standard structure
                         }
@@ -143,13 +166,17 @@ export async function POST(request: Request) {
 
                 // 3. Create Playlist
                 if (cloudIds.length > 0) {
-                    log(`Creating playlist: ${artistName} Top Songs...`);
-                    const playlist = await neteaseService.createPlaylist(`${artistName} Top ${cloudIds.length}`);
+                    log(`Creating playlist: ${artistName}...`);
+                    const playlist = await neteaseService.createPlaylist(artistName);
 
                     if (playlist && playlist.id) {
-                        log(`Adding ${cloudIds.length} songs to playlist...`);
-                        await neteaseService.addSongsToPlaylist(playlist.id, cloudIds);
-                        log('Playlist updated successfully!');
+                        log(`Adding ${cloudIds.length} songs to playlist(ID: ${playlist.id})...`);
+                        const added = await neteaseService.addSongsToPlaylist(playlist.id, cloudIds);
+                        if (added) {
+                            log('Playlist updated successfully!');
+                        } else {
+                            log('Warning: Failed to add some songs to the playlist.');
+                        }
                     } else {
                         log('Failed to create playlist.');
                     }
