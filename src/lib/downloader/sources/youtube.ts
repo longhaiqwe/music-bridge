@@ -96,7 +96,7 @@ export class YoutubeSource implements MusicSource {
                 console.log(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
 
                 // Construct command
-                let cmd = `yt-dlp -x --audio-format mp3 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`;
+                let cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${path.join(TMP_DIR, '%(id)s.%(ext)s')}" ${info.originalId}`;
                 if (cookieFile) {
                     cmd += ` --cookies "${cookieFile}"`;
                 }
