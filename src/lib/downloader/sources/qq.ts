@@ -29,6 +29,12 @@ export class QQMusicSource implements MusicSource {
         }));
     }
 
+    private cleanTitle(str: string): string {
+        // Remove content in parentheses (e.g. "(with ...)", "(feat ...)")
+        // Also remove the parentheses themselves
+        return str.replace(/\s*[\(（][^)\）]*[\)）]\s*/g, ' ').trim();
+    }
+
     private normalize(str: string): string {
         // Remove symbols, punctuation, and spaces, keep only letters and numbers (unicode supported)
         return str.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -56,6 +62,13 @@ export class QQMusicSource implements MusicSource {
             const infoNameNorm = this.normalize(info.name);
             const infoNameTradNorm = this.normalize(infoNameTrad);
 
+            // Clean title (remove parens) for looser matching
+            const infoNameBase = this.cleanTitle(info.name);
+            const infoNameBaseTrad = converter(infoNameBase);
+            const infoNameBaseNorm = this.normalize(infoNameBase);
+            const infoNameBaseTradNorm = this.normalize(infoNameBaseTrad);
+            const useBaseMatch = infoNameBaseNorm.length > 0 && infoNameBaseNorm !== infoNameNorm;
+
             const infoArtistNorm = this.normalize(info.artist);
             const infoArtistTradNorm = this.normalize(infoArtistTrad);
 
@@ -67,7 +80,12 @@ export class QQMusicSource implements MusicSource {
                 candidates.push(`${res.name} (${res.artist})`);
 
                 // Check 1: Does title contain song name? (Check both Simplified and Traditional)
-                const nameMatch = resNameNorm.includes(infoNameNorm) || resNameNorm.includes(infoNameTradNorm);
+                let nameMatch = resNameNorm.includes(infoNameNorm) || resNameNorm.includes(infoNameTradNorm);
+
+                // If strict match fails, try base name match
+                if (!nameMatch && useBaseMatch) {
+                    nameMatch = resNameNorm.includes(infoNameBaseNorm) || resNameNorm.includes(infoNameBaseTradNorm);
+                }
 
                 if (!nameMatch) {
                     continue;

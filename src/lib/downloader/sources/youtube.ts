@@ -119,7 +119,13 @@ export class YoutubeSource implements MusicSource {
                 await this.execWithRetry(cmd);
 
                 if (fs.existsSync(filePath)) {
-                    return filePath;
+                    const stats = fs.statSync(filePath);
+                    // Check if file is valid (at least 10KB to be a valid song)
+                    if (stats.size > 10 * 1024) {
+                        return filePath;
+                    }
+                    console.warn(`[YoutubeSource] Downloaded file is too small (${stats.size} bytes), deleting...`);
+                    fs.unlinkSync(filePath);
                 }
 
                 // Fallback: check other extensions if mp3 failed but something else arrived
