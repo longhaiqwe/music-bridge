@@ -119,13 +119,14 @@ export class QQMusicSource implements MusicSource {
                     score -= 100;
                 }
 
-                // Score 5: Keyword Penalty for Instrumental
-                // Unless specifically requested, instrumental versions should be penalized
-                const instrumentalKeywords = /伴奏|instrumental|karaoke|backing track|off vocal/i;
-                const isInstrumentalRequest = instrumentalKeywords.test(info.name);
+                // Score 5: Keyword Penalty for Instrumental/Cover
+                // Unless specifically requested, instrumental and cover versions should be penalized
+                const badKeywords = /伴奏|纯音乐|消音|instrumental|karaoke|backing? track|off?vocal|无歌词|inst(\s|\.|\d)?|伴奏版|消音版|乐器版|演奏版|唯有|只有伴奏|cover\s+by|翻唱|live\s+cover|acoustic/i;
+                const isRequestingBadVersion = badKeywords.test(info.name);
 
-                if (!isInstrumentalRequest && instrumentalKeywords.test(resNameRaw)) {
-                    score -= 100; // Penalize instrumental versions when not requested
+                if (!isRequestingBadVersion && badKeywords.test(resNameRaw)) {
+                    score -= 300; // Heavy penalty to effectively filter out instrumental/cover versions
+                    console.log(`[Penalty] Bad version detected: ${resNameRaw} (-300 points)`);
                 }
 
                 // Score 5: Duration Match
