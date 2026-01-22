@@ -119,6 +119,15 @@ export class QQMusicSource implements MusicSource {
                     score -= 100;
                 }
 
+                // Score 5: Keyword Penalty for Instrumental
+                // Unless specifically requested, instrumental versions should be penalized
+                const instrumentalKeywords = /伴奏|instrumental|karaoke|backing track|off vocal/i;
+                const isInstrumentalRequest = instrumentalKeywords.test(info.name);
+
+                if (!isInstrumentalRequest && instrumentalKeywords.test(resNameRaw)) {
+                    score -= 100; // Penalize instrumental versions when not requested
+                }
+
                 // Score 5: Duration Match
                 // Tolerance: 3 minutes diff is huge penalty, 1 minute is big penalty, small diff is bonus
                 if (info.duration > 0 && res.duration > 0) {
