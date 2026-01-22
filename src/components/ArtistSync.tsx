@@ -103,6 +103,48 @@ export function ArtistSync() {
         setIgnoredSongIds(newSet);
     };
 
+    // Duplicate detection logic (Name + Artists based)
+    const duplicateInfo = (() => {
+        const seenKeys = new Set<string>();
+        let duplicatesCount = 0;
+        toSyncSongs.forEach(song => {
+            const name = song.name.trim();
+            const artists = song.ar?.map((a: any) => a.name).sort().join(',') || '';
+            const key = `${name}|${artists}`;
+
+            if (seenKeys.has(key)) {
+                duplicatesCount++;
+            } else {
+                seenKeys.add(key);
+            }
+        });
+        return { count: duplicatesCount, hasDuplicates: duplicatesCount > 0 };
+    })();
+
+    const handleRemoveDuplicates = () => {
+        const seenKeys = new Set<string>();
+        const songsToRemove: number[] = [];
+
+        // Iterate and mark duplicates for removal (add to ignored list)
+        toSyncSongs.forEach(song => {
+            const name = song.name.trim();
+            const artists = song.ar?.map((a: any) => a.name).sort().join(',') || '';
+            const key = `${name}|${artists}`;
+
+            if (seenKeys.has(key)) {
+                songsToRemove.push(song.id);
+            } else {
+                seenKeys.add(key);
+            }
+        });
+
+        if (songsToRemove.length > 0) {
+            const newSet = new Set(ignoredSongIds);
+            songsToRemove.forEach(id => newSet.add(id));
+            setIgnoredSongIds(newSet);
+        }
+    };
+
 
     const handleStartSync = async () => {
         if (!selectedArtist) return;
@@ -259,13 +301,31 @@ export function ArtistSync() {
                                     </span>
                                 </h3>
                             </div>
-                            <button
-                                onClick={handleStartSync}
-                                className="px-8 py-2 bg-green-500 text-white font-bold rounded-lg shadow hover:bg-green-600 transition-colors flex items-center gap-2"
-                            >
-                                <CheckCircle2 className="w-5 h-5" />
-                                开始同步
-                            </button>
+
+                            <div className="flex items-center gap-4">
+                                {duplicateInfo.hasDuplicates && (
+                                    <div className="flex items-center gap-3 bg-yellow-50 text-yellow-700 px-4 py-2 rounded-lg border border-yellow-100 animate-fade-in">
+                                        <AlertCircle className="w-5 h-5" />
+                                        <span className="text-sm font-medium">
+                                            检测到 {duplicateInfo.count} 首重复歌曲
+                                        </span>
+                                        <button
+                                            onClick={handleRemoveDuplicates}
+                                            className="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1 rounded-md transition-colors font-bold"
+                                        >
+                                            移除重复
+                                        </button>
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={handleStartSync}
+                                    className="px-8 py-2 bg-green-500 text-white font-bold rounded-lg shadow hover:bg-green-600 transition-colors flex items-center gap-2"
+                                >
+                                    <CheckCircle2 className="w-5 h-5" />
+                                    开始同步
+                                </button>
+                            </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto border border-gray-100 rounded-xl bg-gray-50/50 p-2">
@@ -280,8 +340,9 @@ export function ArtistSync() {
                                         <p className="text-center py-10 text-gray-400">未找到歌曲</p>
                                     ) : (
                                         toSyncSongs.map((song, i) => (
-                                            <div key={song.id} className="group flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
-                                                <div className="flex items-center gap-4 overflow-hidden flex-1">
+                                            <div key={song.id} className="group flex items-center p-3 gap-2 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
+                                                {/* 1. Song Info (Index, Image, Name) - Flex 1 */}
+                                                <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
                                                     <span className="text-gray-400 font-mono w-6 text-right font-medium flex-shrink-0">{i + 1}</span>
                                                     {song.al?.picUrl && (
                                                         <img
@@ -291,14 +352,23 @@ export function ArtistSync() {
                                                             loading="lazy"
                                                         />
                                                     )}
-                                                    <div className="truncate font-medium text-gray-700 group-hover:text-blue-700">
+                                                    <div className="truncate font-medium text-gray-700 group-hover:text-blue-700" title={song.name}>
                                                         {song.name}
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-4 pl-4 shrink-0">
-                                                    <div className="text-sm text-gray-500 max-w-[200px] truncate" title={song.al?.name}>
-                                                        {song.al?.name}
-                                                    </div>
+
+                                                {/* 2. Artist Column - Fixed Width ~25% */}
+                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-600 truncate" title={song.ar?.map((a: any) => a.name).join(' / ')}>
+                                                    {song.ar?.map((a: any) => a.name).join(' / ')}
+                                                </div>
+
+                                                {/* 3. Album Column - Fixed Width ~25% */}
+                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-500 truncate" title={song.al?.name}>
+                                                    {song.al?.name}
+                                                </div>
+
+                                                {/* 4. Action Column */}
+                                                <div className="w-10 flex justify-end shrink-0">
                                                     <button
                                                         onClick={() => handleRemoveSong(song.id)}
                                                         className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"

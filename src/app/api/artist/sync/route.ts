@@ -234,7 +234,11 @@ export async function POST(request: Request) {
                         log(`Adding ${cloudIds.length} songs to playlist(ID: ${playlist.id})...`);
                         // Reverse the order so that the first searched song appears first in the playlist
                         // (Counteracting the 'newest first' or stack behavior effectively)
-                        const reversedCloudIds = [...cloudIds].reverse();
+                        // Also deduplicate to prevent API errors
+                        const uniqueCloudIds = Array.from(new Set(cloudIds));
+                        const reversedCloudIds = [...uniqueCloudIds].reverse();
+
+                        log(`Adding ${reversedCloudIds.length} unique songs to playlist(ID: ${playlist.id})...`);
                         const added = await neteaseService.addSongsToPlaylist(playlist.id, reversedCloudIds);
                         if (added) {
                             log('Playlist updated successfully!');

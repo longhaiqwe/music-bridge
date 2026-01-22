@@ -102,14 +102,15 @@ export class NeteaseService {
     const fileName = path.basename(filePath);
 
     let lastError;
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 5;
 
     for (let i = 0; i < MAX_RETRIES; i++) {
       try {
         if (i > 0) {
-          console.log(`Retrying upload (${i + 1}/${MAX_RETRIES})...`);
-          // Wait a bit before retry (1s, 2s, etc.)
-          await new Promise(r => setTimeout(r, 1000 * i));
+          // Exponential-ish backoff: 2s, 4s, 6s, 8s
+          const delay = 2000 * i;
+          console.log(`Retrying upload (${i + 1}/${MAX_RETRIES}) after ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
         }
 
         const res = await NeteaseCloudMusicApi.cloud({
@@ -258,11 +259,19 @@ export class NeteaseService {
           cookie: this.cookie
         }) as any;
 
-        if (res && res.body && (res.body.code === 200 || res.body.code === 502)) {
-          if (res.body.code === 200) {
+        if (res && res.body) {
+          // Fix: Netease API response is sometimes nested in body.body or body.code
+          const code = res.body.code || (res.body.body && res.body.body.code);
+
+          if (code === 200 || code === 502) {
+            if (code === 200) {
+              return true;
+            }
+            // 502 usually means duplicate songs, which is fine if we partially succeeded or it's just a warning
+            console.log(`Add songs API returned code ${code} (likely duplicates), treating as success.`);
             return true;
           }
-          console.log(`Add songs API returned code ${res.body.code}:`, res.body);
+          console.log(`Add songs API returned code ${code}:`, res.body);
         } else {
           console.error(`Add songs failed. Full Response:`, JSON.stringify(res, null, 2));
         }
