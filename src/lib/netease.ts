@@ -166,7 +166,10 @@ export class NeteaseService {
   }
 
   async searchSong(keyword: string): Promise<any[]> {
-    if (!this.cookie) throw new Error('Not logged in');
+    if (!this.cookie) {
+      console.warn('[searchSong] Not logged in, returning empty results');
+      return [];
+    }
     try {
       const res = await NeteaseCloudMusicApi.cloudsearch({
         keywords: keyword,
