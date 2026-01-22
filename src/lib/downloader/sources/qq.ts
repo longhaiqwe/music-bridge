@@ -94,7 +94,47 @@ export class QQMusicSource implements MusicSource {
                 let score = 0;
                 score += 100; // Base score for name match
 
-                // Score 2: Artist Match (Check both Simplified and Traditional)
+                // Score 1: Exact Match Bonus
+                if (resNameNorm === infoNameNorm || resNameNorm === infoNameTradNorm) {
+                    score += 100;
+                }
+
+                // Score 2: Artist - Song Pattern Bonus
+                // If title explicitly contains artist and matched the song name, it's a strong signal (e.g. "Artist - Song" or "Song - Artist")
+                const titleHasArtist = resNameNorm.includes(infoArtistNorm) ||
+                    resNameNorm.includes(infoArtistTradNorm);
+
+                if (titleHasArtist) {
+                    score += 150;
+                }
+
+                // Score 3: Length Penalty
+                // Deduct based on length difference to avoid medleys matching short song names
+                const lengthDiff = Math.abs(resNameNorm.length - infoNameNorm.length);
+                score -= lengthDiff * 1;
+
+                // Score 4: Keyword Penalty for Medleys (Expanded)
+                const medleyKeywords = /合集|全集|三部曲|串烧|medley|mashup|compilation|greatest hits/i;
+                if (medleyKeywords.test(resNameRaw) && !medleyKeywords.test(info.name)) {
+                    score -= 100;
+                }
+
+                // Score 5: Duration Match
+                // Tolerance: 3 minutes diff is huge penalty, 1 minute is big penalty, small diff is bonus
+                if (info.duration > 0 && res.duration > 0) {
+                    const durationDiff = Math.abs(info.duration - res.duration);
+
+                    if (durationDiff > 180) { // > 3 mins difference
+                        score -= 200; // Impossible to be the same song (unless it's a 10min version vs 3min)
+                    } else if (durationDiff > 60) { // > 1 min difference
+                        score -= 50;
+                    } else if (durationDiff <= 10) { // Very close match
+                        score += 50;
+                    }
+                }
+
+                // Score 6: Artist Match (Check match in channel/artist field OR title)
+                // Note: Title match is already partially rewarded in Score 2, but this checks the explicit 'artist' field too
                 const artistMatch = resNameNorm.includes(infoArtistNorm) ||
                     resNameNorm.includes(infoArtistTradNorm) ||
                     resArtistNorm.includes(infoArtistNorm) ||
@@ -104,7 +144,7 @@ export class QQMusicSource implements MusicSource {
                     score += 50;
                 }
 
-                // Score 3: Live Status Match
+                // Score 7: Live Status Match
                 const resIsLive = /live|concert|现场|演唱会/i.test(resNameRaw);
                 if (isLiveRequest === resIsLive) {
                     score += 50;
@@ -112,7 +152,7 @@ export class QQMusicSource implements MusicSource {
                     score -= 50;
                 }
 
-                // Score 4: DJ/Remix Status Match (Negative Filtering)
+                // Score 7: DJ/Remix Status Match (Negative Filtering)
                 // If original song is NOT DJ/Remix, reject or heavily penalize DJ/Remix versions
                 if (!isDJRequest) {
                     const resIsDJ = /dj|remix|mix|串烧|土嗨|慢摇|bootleg/i.test(resNameRaw);
