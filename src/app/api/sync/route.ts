@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         step = 'upload';
         console.log('Uploading to Netease Cloud Disk...');
         const uploadResult = await neteaseService.uploadToCloudDisk(finalFilePath);
-        console.log('Upload result:', uploadResult);
+
 
         // 4. Cleanup
         try { fs.unlinkSync(finalFilePath); } catch { }
