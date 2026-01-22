@@ -127,6 +127,24 @@ export class QQMusicService {
             return [];
         }
     }
+    async getLyric(songId: string | number): Promise<string> {
+        try {
+            // @ts-ignore
+            const res = await qq.api('lyric', {
+                songmid: songId // QQ Music uses songmid for lyrics usually
+            });
+
+            // @ts-ignore
+            if (res?.data?.lyric) return res.data.lyric;
+            // @ts-ignore
+            if (res?.lyric) return res.lyric;
+
+            return '';
+        } catch (e) {
+            console.error('QQ Music getLyric failed:', e);
+            return '';
+        }
+    }
 }
 
 export const qqMusicService = new QQMusicService();

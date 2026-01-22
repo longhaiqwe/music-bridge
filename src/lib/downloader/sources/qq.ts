@@ -99,11 +99,12 @@ export class QQMusicSource implements MusicSource {
                 }
 
                 // SPECIAL CASE: If view count is very high (>1M), relax the name match requirement
-                const isHighViewCount = res.viewCount && res.viewCount > 1000000;
-                if (!nameMatch && isHighViewCount) {
-                    console.log(`[Match] High view count video (${viewStr}) doesn't match title, including anyway: ${resNameRaw}`);
-                    nameMatch = true; // Allow high view count videos even without perfect title match
-                }
+                // REMOVED: High view count override caused unrelated songs (e.g. Nocturne vs Sunny Day) to match
+                // const isHighViewCount = res.viewCount && res.viewCount > 1000000;
+                // if (!nameMatch && isHighViewCount) {
+                //     console.log(`[Match] High view count video (${viewStr}) doesn't match title, including anyway: ${resNameRaw}`);
+                //     nameMatch = true; // Allow high view count videos even without perfect title match
+                // }
 
                 if (!nameMatch) {
                     console.log(`[Match] Skipped (no title match): ${resNameRaw} - ${viewStr}`);

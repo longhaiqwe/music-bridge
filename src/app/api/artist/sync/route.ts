@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { neteaseService } from '@/lib/netease';
 import { downloadManager } from '@/lib/downloader';
+import { qqMusicService } from '@/lib/qqmusic';
 import { embedMetadata, getSafeFileName } from '@/lib/metadata';
 import path from 'path';
 import fs from 'fs';
@@ -134,63 +135,61 @@ export async function POST(request: Request) {
                         const albumName = albumObj.name || '';
                         const coverUrl = albumObj.picUrl;
 
-                        // Fetch Lyrics (Search like single sync does with validation and retry)
+                        // Fetch Lyrics (Strategy: QQ Music First -> NetEase Fallback)
                         let lyrics = '';
-                        const MIN_LYRICS_LENGTH = 200; // Minimum chars to consider lyrics valid
+                        const MIN_LYRICS_LENGTH = 200;
 
                         try {
-                            // Attempt 1: Normal search
-                            const query = `${song.name} ${artistName}`;
-                            let searchRes = await neteaseService.searchSong(query);
+                            // Attempt 1: QQ Music (Prioritized)
+                            log(`[Lyrics] Fetching from QQ Music (Priority)...`);
+                            const qqSongs = await qqMusicService.search(`${song.name} ${artistName}`);
+                            if (qqSongs.length > 0) {
+                                const bestQQMatch = qqSongs[0];
+                                lyrics = await qqMusicService.getLyric(bestQQMatch.id);
+                                if (lyrics && lyrics.length >= MIN_LYRICS_LENGTH) {
+                                    log(`[Lyrics] Found lyrics on QQ Music (${lyrics.length} chars)`);
+                                } else {
+                                    console.log(`[Lyrics] QQ Music lyrics invalid/short (${lyrics?.length || 0} chars).`);
+                                    lyrics = ''; // Reset if invalid
+                                }
+                            } else {
+                                console.log(`[Lyrics] No match on QQ Music.`);
+                            }
 
-                            if (searchRes && searchRes.length > 0) {
-                                let bestMatch = searchRes[0];
-                                lyrics = await neteaseService.getLyric(bestMatch.id);
+                            // Attempt 2: NetEase Fallback (if QQ failed)
+                            if (!lyrics) {
+                                log(`[Lyrics] Trying NetEase fallback...`);
+                                const searchRes = await neteaseService.searchSong(`${song.name} ${artistName}`);
+                                if (searchRes && searchRes.length > 0) {
+                                    const bestMatch = searchRes[0];
+                                    const neLyrics = await neteaseService.getLyric(bestMatch.id);
 
-                                // Attempt 2: Retry if lyrics too short (likely instrumental/wrong version)
-                                if (lyrics && lyrics.length < MIN_LYRICS_LENGTH) {
-                                    console.log(`[Lyrics] Lyrics too short (${lyrics.length} chars < ${MIN_LYRICS_LENGTH}), retrying with different query...`);
-
-                                    // Try with "原版" keyword to find original version
-                                    const retryQueries = [
-                                        `${song.name} ${artistName} 原版`,
-                                        `${song.name} ${artistName} 官方`,
-                                        `${song.name} ${artistName} 正版`
-                                    ];
-
-                                    for (const retryQuery of retryQueries) {
-                                        const retryRes = await neteaseService.searchSong(retryQuery);
-                                        if (retryRes && retryRes.length > 0) {
-                                            const retryMatch = retryRes[0];
-                                            const retryLyrics = await neteaseService.getLyric(retryMatch.id);
-
-                                            if (retryLyrics && retryLyrics.length > lyrics.length) {
-                                                console.log(`[Lyrics] Found better lyrics with query "${retryQuery}" (${retryLyrics.length} chars)`);
-                                                lyrics = retryLyrics;
-                                                break;
+                                    if (neLyrics && neLyrics.length >= MIN_LYRICS_LENGTH) {
+                                        log(`[Lyrics] Found lyrics on NetEase (${neLyrics.length} chars)`);
+                                        lyrics = neLyrics;
+                                    } else {
+                                        // Try "Original" keywords on NetEase
+                                        console.log(`[Lyrics] NetEase lyrics short, retrying keywords...`);
+                                        const retryQueries = [`${song.name} ${artistName} 原版`, `${song.name} ${artistName} 官方`];
+                                        for (const q of retryQueries) {
+                                            const retryRes = await neteaseService.searchSong(q);
+                                            if (retryRes?.[0]) {
+                                                const retryLrc = await neteaseService.getLyric(retryRes[0].id);
+                                                if (retryLrc && retryLrc.length > (neLyrics?.length || 0)) {
+                                                    lyrics = retryLrc;
+                                                    log(`[Lyrics] Found better lyrics on NetEase retry (${lyrics.length} chars)`);
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
                                 }
-
-                                if (lyrics) {
-                                    if (lyrics.length < MIN_LYRICS_LENGTH) {
-                                        console.log(`[Lyrics] ⚠️ Lyrics still short for: ${song.name} (${lyrics.length} chars)`);
-                                    } else {
-                                        console.log(`[Lyrics] Found lyrics for: ${song.name} (${lyrics.length} chars)`);
-                                    }
-                                    log(`Lyrics found (${lyrics.length} chars).`);
-                                } else {
-                                    console.log(`[Lyrics] No lyrics found for: ${song.name}`);
-                                    log(`No lyrics found.`);
-                                }
-                            } else {
-                                console.log(`[Lyrics] No match found for: ${song.name}`);
-                                log(`No lyrics found.`);
                             }
                         } catch (e: any) {
-                            console.warn(`[Lyrics] Failed to fetch lyrics for: ${song.name}`, e.message);
+                            console.warn(`[Lyrics] Error fetching lyrics:`, e.message);
                         }
+
+
 
                         await embedMetadata(rawPath, tmpPath, {
                             title: song.name,
