@@ -240,7 +240,7 @@ export function ArtistSync() {
                             onChange={(e) => setKeyword(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch(e)}
                             placeholder="输入歌手名字 (如: 周杰伦)"
-                            className="flex-1 p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-0 outline-none text-lg transition-colors"
+                            className="flex-1 p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-0 outline-none text-lg transition-colors placeholder:text-gray-500 text-gray-900"
                         />
                         <button
                             onClick={handleSearch}
@@ -272,7 +272,7 @@ export function ArtistSync() {
                         min={0}
                         max={500}
                         disabled={syncStatus === 'syncing'}
-                        className="w-full p-3 border-2 border-gray-200 rounded-xl bg-white focus:border-blue-500 focus:ring-0 outline-none text-lg"
+                        className="w-full p-3 border-2 border-gray-200 rounded-xl bg-white focus:border-blue-500 focus:ring-0 outline-none text-lg text-gray-900 placeholder:text-gray-500"
                     />
                 </div>
             </div>
