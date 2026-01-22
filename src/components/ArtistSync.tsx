@@ -284,7 +284,7 @@ export function ArtistSync() {
                 {!selectedArtist && syncStatus === 'idle' && (
                     <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
                         <Music className="w-20 h-20 mb-4 opacity-20" />
-                        <p className="text-lg">请在上方搜索歌手，系统将自动展示热门歌曲</p>
+                        <p className="text-lg text-gray-600">请在上方搜索歌手，系统将自动展示热门歌曲</p>
                     </div>
                 )}
 

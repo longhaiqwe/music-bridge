@@ -49,7 +49,7 @@ export function MusicSearch() {
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
                     placeholder="搜索音乐 (如: 周杰伦)"
-                    className="flex-1 p-2 border rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex-1 p-2 border rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
                 />
                 <button
                     type="submit"
