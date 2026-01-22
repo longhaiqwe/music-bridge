@@ -59,175 +59,35 @@ export class QQMusicSource implements MusicSource {
 
         // Helper to execute search and matching
         const findMatch = async (searchQuery: string): Promise<{ match: MusicInfo | null, candidates: string[] }> => {
-            const results = await this.youtubeSource.search(searchQuery);
+            const results = await this.youtubeSource.search(searchQuery, {
+                artist: info.artist,
+                duration: info.duration
+            });
             const candidates: string[] = [];
-
-            let bestMatch: MusicInfo | null = null;
-            let bestScore = -1;
 
             // Prepare Traditional Chinese variants for matching
             const infoNameTrad = converter(info.name);
-            const infoArtistTrad = converter(info.artist);
-
             const infoNameNorm = this.normalize(info.name);
             const infoNameTradNorm = this.normalize(infoNameTrad);
 
-            // Clean title (remove parens) for looser matching
-            const infoNameBase = this.cleanTitle(info.name);
-            const infoNameBaseTrad = converter(infoNameBase);
-            const infoNameBaseNorm = this.normalize(infoNameBase);
-            const infoNameBaseTradNorm = this.normalize(infoNameBaseTrad);
-            const useBaseMatch = infoNameBaseNorm.length > 0 && infoNameBaseNorm !== infoNameNorm;
-
-            const infoArtistNorm = this.normalize(info.artist);
-            const infoArtistTradNorm = this.normalize(infoArtistTrad);
-
             for (const res of results) {
-                const resNameRaw = res.name;
-                const resNameNorm = this.normalize(resNameRaw);
-                const resArtistNorm = this.normalize(res.artist);
-
+                const resNameNorm = this.normalize(res.name);
                 const viewStr = res.viewCount ? `${this.formatViewCount(res.viewCount)} views` : 'N/A';
-                candidates.push(`${res.name} (${res.artist}) - ${viewStr}`);
+                candidates.push(`${res.name} (${res.artist}) [Score:${(res as any)._debugScore}] - ${viewStr}`);
 
-                // Check 1: Does title contain song name? (Check both Simplified and Traditional)
-                let nameMatch = resNameNorm.includes(infoNameNorm) || resNameNorm.includes(infoNameTradNorm);
+                // Basic Name Validation
+                // Since YoutubeSource already sorts by score (Official > Cover, etc), we just need to verify 
+                // that the video title actually contains the song name to avoid completely random results.
 
-                // If strict match fails, try base name match
-                if (!nameMatch && useBaseMatch) {
-                    nameMatch = resNameNorm.includes(infoNameBaseNorm) || resNameNorm.includes(infoNameBaseTradNorm);
-                }
+                const nameMatch = resNameNorm.includes(infoNameNorm) || resNameNorm.includes(infoNameTradNorm);
 
-                // SPECIAL CASE: If view count is very high (>1M), relax the name match requirement
-                // REMOVED: High view count override caused unrelated songs (e.g. Nocturne vs Sunny Day) to match
-                // const isHighViewCount = res.viewCount && res.viewCount > 1000000;
-                // if (!nameMatch && isHighViewCount) {
-                //     console.log(`[Match] High view count video (${viewStr}) doesn't match title, including anyway: ${resNameRaw}`);
-                //     nameMatch = true; // Allow high view count videos even without perfect title match
-                // }
-
-                if (!nameMatch) {
-                    console.log(`[Match] Skipped (no title match): ${resNameRaw} - ${viewStr}`);
-                    continue;
-                }
-
-                let score = 0;
-                score += 100; // Base score for name match
-
-                // Score 1: Exact Match Bonus
-                if (resNameNorm === infoNameNorm || resNameNorm === infoNameTradNorm) {
-                    score += 100;
-                }
-
-                // Score 2: Artist - Song Pattern Bonus
-                // If title explicitly contains artist and matched the song name, it's a strong signal (e.g. "Artist - Song" or "Song - Artist")
-                const titleHasArtist = resNameNorm.includes(infoArtistNorm) ||
-                    resNameNorm.includes(infoArtistTradNorm);
-
-                if (titleHasArtist) {
-                    score += 150;
-                }
-
-                // Score 3: Length Penalty
-                // Deduct based on length difference to avoid medleys matching short song names
-                const lengthDiff = Math.abs(resNameNorm.length - infoNameNorm.length);
-                score -= lengthDiff * 1;
-
-                // Score 4: Keyword Penalty for Medleys (Expanded)
-                const medleyKeywords = /合集|全集|三部曲|串烧|medley|mashup|compilation|greatest hits/i;
-                if (medleyKeywords.test(resNameRaw) && !medleyKeywords.test(info.name)) {
-                    score -= 100;
-                }
-
-                // Score 5: Keyword Penalty for Instrumental/Cover
-                // Unless specifically requested, instrumental and cover versions should be penalized
-                const badKeywords = /伴奏|纯音乐|消音|instrumental|karaoke|backing? track|off?vocal|无歌词|inst(\s|\.|\d)?|伴奏版|消音版|乐器版|演奏版|唯有|只有伴奏|cover\s+by|翻唱|live\s+cover|acoustic/i;
-                const isRequestingBadVersion = badKeywords.test(info.name);
-
-                if (!isRequestingBadVersion && badKeywords.test(resNameRaw)) {
-                    score -= 300; // Heavy penalty to effectively filter out instrumental/cover versions
-                    console.log(`[Penalty] Bad version detected: ${resNameRaw} (-300 points)`);
-                }
-
-                // Score 5.5: Penalty for preview/sample versions
-                if (/试听|preview|sample|snippet|demo|片段/i.test(resNameRaw)) {
-                    score -= 100;
-                    console.log(`[Penalty] Preview/sample version detected: ${resNameRaw} (-100 points)`);
-                }
-
-                // Score 5: Duration Match
-                // Tolerance: 3 minutes diff is huge penalty, 1 minute is big penalty, small diff is bonus
-                if (info.duration > 0 && res.duration > 0) {
-                    const durationDiff = Math.abs(info.duration - res.duration);
-
-                    if (durationDiff > 180) { // > 3 mins difference
-                        score -= 200; // Impossible to be the same song (unless it's a 10min version vs 3min)
-                    } else if (durationDiff > 60) { // > 1 min difference
-                        score -= 50;
-                    } else if (durationDiff <= 10) { // Very close match
-                        score += 50;
-                    }
-                }
-
-                // Score 6: Artist Match (Check match in channel/artist field OR title)
-                // Note: Title match is already partially rewarded in Score 2, but this checks the explicit 'artist' field too
-                const artistMatch = resNameNorm.includes(infoArtistNorm) ||
-                    resNameNorm.includes(infoArtistTradNorm) ||
-                    resArtistNorm.includes(infoArtistNorm) ||
-                    resArtistNorm.includes(infoArtistTradNorm);
-
-                if (artistMatch) {
-                    score += 50;
-                }
-
-                // Score 7: Live Status Match
-                const resIsLive = /live|concert|现场|演唱会/i.test(resNameRaw);
-                if (isLiveRequest === resIsLive) {
-                    score += 50;
-                } else {
-                    score -= 50;
-                }
-
-                // Score 7: DJ/Remix Status Match (Negative Filtering)
-                // If original song is NOT DJ/Remix, reject or heavily penalize DJ/Remix versions
-                if (!isDJRequest) {
-                    const resIsDJ = /dj|remix|mix|串烧|土嗨|慢摇|bootleg/i.test(resNameRaw);
-                    if (resIsDJ) {
-                        score -= 200; // Heavy penalty to effectively filter it out
-                    }
-                }
-
-                // Score 8: View Count Bonus (Quality indicator)
-                // Higher views = more popular = likely better quality/official version
-                if (res.viewCount && res.viewCount > 0) {
-                    // Logarithmic scale to avoid overwhelming other factors
-                    // 1K views = +10, 10K views = +20, 100K views = +30, 1M views = +40, 10M views = +50
-                    const viewBonus = Math.floor(Math.log10(res.viewCount) * 10);
-                    const cappedBonus = Math.min(viewBonus, 50);
-                    score += cappedBonus;
-                    console.log(`[Match] View count bonus: +${cappedBonus} (${viewStr})`);
-
-                    // EXTRA BONUS: Videos with >5M views get additional +100 points
-                    if (res.viewCount > 5000000) {
-                        score += 100;
-                        console.log(`[Match] EXTRA BONUS: +100 for超高播放量 (>5M views, ${viewStr})`);
-                    }
-                }
-
-                console.log(`[Match] Score: ${score} for "${resNameRaw}" (${viewStr})`);
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMatch = res;
+                if (nameMatch) {
+                    console.log(`[QQMusicSource] Selected match: ${res.name}`);
+                    return { match: res, candidates };
                 }
             }
 
-            // Only accept if score is reasonable (e.g. positive)
-            if (bestScore <= 0) {
-                return { match: null, candidates };
-            }
-
-            return { match: bestMatch, candidates };
+            return { match: null, candidates };
         };
 
         try {

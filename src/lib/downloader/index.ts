@@ -15,11 +15,11 @@ export class DownloadManager {
         console.log(`Registered source: ${source.name}`);
     }
 
-    async search(keyword: string): Promise<MusicInfo[]> {
+    async search(keyword: string, options?: { artist?: string; duration?: number }): Promise<MusicInfo[]> {
         const results = await Promise.all(
             this.sources.map(async (source) => {
                 try {
-                    return await source.search(keyword);
+                    return await source.search(keyword, options);
                 } catch (e) {
                     console.error(`Error searching ${source.name}:`, e);
                     return [];

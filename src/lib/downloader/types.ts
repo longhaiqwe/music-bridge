@@ -18,7 +18,7 @@ export interface SearchResult {
 
 export interface MusicSource {
     name: string;
-    search(keyword: string): Promise<MusicInfo[]>;
+    search(keyword: string, options?: { artist?: string; duration?: number }): Promise<MusicInfo[]>;
     getDownloadUrl(info: MusicInfo): Promise<string>;
     // Returns a stream or buffer (handled by caller fetching the URL)
 }

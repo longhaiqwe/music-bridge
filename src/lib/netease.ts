@@ -24,6 +24,7 @@ export class NeteaseService {
       try {
         const data = fs.readFileSync(COOKIE_FILE, 'utf-8');
         const json = JSON.parse(data);
+        console.log('[NeteaseService] Loaded cookie file. UpdatedAt:', new Date(json.updatedAt).toLocaleString());
 
         // Check for expiration (1 day = 24 * 60 * 60 * 1000 ms)
         // If updatedAt is missing, we also accept it this time (backward compatibility) 
@@ -37,8 +38,10 @@ export class NeteaseService {
         const ONE_DAY = 24 * 60 * 60 * 1000;
         if (!json.updatedAt || (Date.now() - json.updatedAt < ONE_DAY)) {
           this.cookie = json.cookie;
+          console.log('[NeteaseService] Cookie is valid and loaded.');
         } else {
           this.cookie = ''; // Expired
+          console.log('[NeteaseService] Cookie is EXPIRED. (Age > 24h)');
         }
       } catch (e) {
         console.error('Failed to load cookie:', e);
@@ -52,6 +55,7 @@ export class NeteaseService {
       cookie,
       updatedAt: Date.now()
     }));
+    console.log('[NeteaseService] Saved new cookie. Length:', cookie.length);
   }
 
   async loginQrCodeKey(): Promise<string> {
@@ -76,6 +80,7 @@ export class NeteaseService {
 
     if (res?.body?.code === 803) {
       // Login successful, save cookie
+      console.log('[NeteaseService] Login successful (803). Saving cookie...');
       this.saveCookie(res.body.cookie);
     }
 

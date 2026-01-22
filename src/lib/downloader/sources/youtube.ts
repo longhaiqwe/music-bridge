@@ -13,8 +13,88 @@ if (!fs.existsSync(TMP_DIR)) {
 }
 
 
+import * as OpenCC from 'opencc-js';
+
+const converter = OpenCC.Converter({ from: 'cn', to: 'hk' });
+
 export class YoutubeSource implements MusicSource {
     name = 'youtube';
+
+    // Helper to normalize strings for comparison
+    private normalize(str: string): string {
+        return str.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    }
+
+    private cleanTitle(str: string): string {
+        return str.replace(/\s*[\(（][^)\）]*[\)）]\s*/g, ' ').trim();
+    }
+
+    private calculateScore(video: MusicInfo, keyword: string, options?: { artist?: string; duration?: number }): number {
+        let score = 0;
+        const videoNameRaw = video.name;
+        const videoNameNorm = this.normalize(videoNameRaw);
+
+        // We might not have the original song name easily if keyword is a mix, 
+        // but we can try to infer or just rely on keywords.
+        // If options.artist is present, we can use it.
+
+        const artist = options?.artist || '';
+        const duration = options?.duration || 0;
+
+        // 1. Keywords (Title)
+        if (/Official|官方|MV|Music Video/i.test(videoNameRaw)) score += 50;
+
+        // Lyric/Audio: favorable if duration is close (checked later), otherwise just small bonus
+        if (/Lyric|歌词|Audio|音频/i.test(videoNameRaw)) score += 10;
+
+        // Penalties (Context-aware)
+        const isLiveSearch = /Live|Concert|现场|演唱会/i.test(keyword);
+        if (!isLiveSearch && /Live|Concert|现场|演唱会/i.test(videoNameRaw)) score -= 20;
+
+        const isCoverSearch = /Cover|翻唱/i.test(keyword);
+        if (!isCoverSearch && /Cover|翻唱/i.test(videoNameRaw)) score -= 50;
+
+        // Remix penalty
+        const isRemixSearch = /Remix|Mix|串烧/i.test(keyword);
+        if (!isRemixSearch && /Remix|Mix|串烧/i.test(videoNameRaw)) score -= 50;
+
+        if (/伴奏|Instrumental|Karaoke/i.test(videoNameRaw)) score -= 50;
+        if (/Reaction|Tutorial|Guitar|Piano/i.test(videoNameRaw)) score -= 50;
+        if (/试听|Preview|Teaser|Trailer/i.test(videoNameRaw)) score -= 50;
+
+        // 2. Channel Match
+        if (artist) {
+            const channelNorm = this.normalize(video.artist); // video.artist is uploader
+            const artistNorm = this.normalize(artist);
+            const artistTradNorm = this.normalize(converter(artist));
+
+            if (channelNorm.includes(artistNorm) || channelNorm.includes(artistTradNorm)) {
+                score += 40;
+            }
+        }
+        // Known official channels (could be expanded)
+        if (/JVR Music|周杰倫/i.test(video.artist)) score += 20;
+
+        // 3. Duration Match
+        if (duration > 0 && video.duration > 0) {
+            const diff = Math.abs(video.duration - duration);
+            if (diff < 5) score += 30;
+            else if (diff < 20) score += 10;
+            else if (diff > 60) {
+                // If it claims to be certain things, we might forgive it?
+                // But generally > 1 min diff is bad.
+                score -= 50;
+            }
+        }
+
+        // 4. View Count (Logarithmic)
+        // 1M = 6 * 2 = 12. 100M = 8 * 2 = 16.
+        if (video.viewCount && video.viewCount > 0) {
+            score += Math.log10(video.viewCount) * 2;
+        }
+
+        return score;
+    }
 
     private async withCookies<T>(callback: (cookiePath: string | null) => Promise<T>): Promise<T> {
         let cookieFile: string | null = null;
@@ -38,14 +118,15 @@ export class YoutubeSource implements MusicSource {
         }
     }
 
-    async search(keyword: string): Promise<MusicInfo[]> {
+    async search(keyword: string, options?: { artist?: string; duration?: number }): Promise<MusicInfo[]> {
         return this.withCookies(async (cookieFile) => {
             try {
                 console.log(`[YoutubeSource] Searching for: ${keyword}`);
                 // Escape quotes to prevent shell issues
                 const safeKeyword = keyword.replace(/"/g, '\\"');
 
-                let command = `yt-dlp --dump-json --no-playlist "ytsearch5:${safeKeyword}"`;
+                // Increase limit slightly to give us more candidates to score
+                let command = `yt-dlp --dump-json --no-playlist "ytsearch10:${safeKeyword}"`;
                 if (cookieFile) {
                     command += ` --cookies "${cookieFile}"`;
                 }
@@ -75,8 +156,23 @@ export class YoutubeSource implements MusicSource {
                     }
                 }
 
-                // Sort by view count (descending) - highest views first
-                results.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+                // Sort by calculated score
+                results.sort((a, b) => {
+                    const scoreA = this.calculateScore(a, keyword, options);
+                    const scoreB = this.calculateScore(b, keyword, options);
+                    // Add score to debug
+                    // @ts-ignore
+                    a._debugScore = scoreA;
+                    // @ts-ignore
+                    b._debugScore = scoreB;
+                    return scoreB - scoreA;
+                });
+
+                // Log top 3 for debugging
+                console.log('[YoutubeSource] Top 3 results:', results.slice(0, 3).map(r =>
+                    // @ts-ignore
+                    `${r.name} (${r._debugScore}) [${r.duration}s]`
+                ));
 
                 return results;
             } catch (e) {
