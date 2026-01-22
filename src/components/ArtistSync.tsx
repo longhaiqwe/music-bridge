@@ -28,6 +28,9 @@ export function ArtistSync() {
     const [allCachedSongs, setAllCachedSongs] = useState<any[]>([]);
     const [ignoredSongIds, setIgnoredSongIds] = useState<Set<number>>(new Set());
 
+    // New state for detailed sync result
+    const [syncResult, setSyncResult] = useState<{ success: number, failed: number, failedSongs: string[] } | null>(null);
+
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!keyword) return;
@@ -105,7 +108,7 @@ export function ArtistSync() {
         if (!selectedArtist) return;
 
         setSyncStatus('syncing');
-
+        setSyncResult(null); // Reset result
         setProgress({ current: 0, total: toSyncSongs.length || Number(syncCount) });
         setStatusMessage('准备开始...');
         setCurrentSong('');
@@ -159,6 +162,8 @@ export function ArtistSync() {
                             if (msg.includes('Uploading')) setStatusMessage('正在上传到云盘...');
                             if (msg.includes('Uploaded success')) setStatusMessage('上传成功！');
                             if (msg.includes('Selection] Picked')) setStatusMessage('已找到最佳音源');
+                        } else if (event.type === 'summary') {
+                            setSyncResult(event.stats);
                         }
                     } catch (e) {
                         // Ignore parse errors for partial chunks
@@ -373,17 +378,43 @@ export function ArtistSync() {
                     </div>
                 )}
 
-                {/* State 4: Success */}
+                {/* State 4: Success / Partial Success */}
                 {syncStatus === 'success' && (
-                    <div className="flex-1 flex flex-col items-center justify-center animate-fade-in">
-                        <div className="text-center space-y-6">
-                            <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <CheckCircle2 className="w-12 h-12 text-green-600" />
-                            </div>
-                            <h2 className="text-3xl font-bold text-gray-800">同步完成!</h2>
-                            <p className="text-gray-500">
-                                已成功将 {progress.current} 首歌曲同步到您的网易云盘。
-                            </p>
+                    <div className="flex-1 flex flex-col items-center justify-center animate-fade-in p-6">
+                        <div className="text-center space-y-6 w-full max-w-2xl">
+                            {syncResult?.failed && syncResult.failed > 0 ? (
+                                <>
+                                    <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <AlertCircle className="w-10 h-10 text-yellow-600" />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-gray-800">同步完成 (有部分失败)</h2>
+                                    <div className="bg-white border rounded-lg shadow-sm text-left overflow-hidden">
+                                        <div className="bg-gray-50 px-4 py-2 border-b text-sm font-semibold text-gray-600 flex justify-between">
+                                            <span>失败列表 ({syncResult.failed})</span>
+                                            <span className="text-green-600">成功: {syncResult.success}</span>
+                                        </div>
+                                        <div className="max-h-60 overflow-y-auto p-4 space-y-2">
+                                            {syncResult.failedSongs.map((s, i) => (
+                                                <div key={i} className="text-sm text-red-600 flex items-start gap-2">
+                                                    <span className="mt-0.5">•</span>
+                                                    <span>{s}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <CheckCircle2 className="w-12 h-12 text-green-600" />
+                                    </div>
+                                    <h2 className="text-3xl font-bold text-gray-800">同步完成!</h2>
+                                    <p className="text-gray-500">
+                                        已成功将 {progress.current} 首歌曲同步到您的网易云盘。
+                                    </p>
+                                </>
+                            )}
+
                             <button
                                 onClick={() => setSyncStatus('idle')}
                                 className="px-8 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800 font-bold transition-transform active:scale-95 flex items-center gap-2 mx-auto"

@@ -214,6 +214,17 @@ export async function POST(request: Request) {
                 }
                 log('----------------------------------------');
 
+                // Send structured summary event for frontend UI
+                const summaryEvent = JSON.stringify({
+                    type: 'summary',
+                    stats: {
+                        success: results.success,
+                        failed: results.failed,
+                        failedSongs: results.failedSongs
+                    }
+                }) + '\n';
+                controller.enqueue(encoder.encode(summaryEvent));
+
                 // 3. Create Playlist
                 if (cloudIds.length > 0) {
                     log(`Creating playlist: ${artistName}...`);
