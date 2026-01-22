@@ -358,12 +358,12 @@ export function ArtistSync() {
                                                 </div>
 
                                                 {/* 2. Artist Column - Fixed Width ~25% */}
-                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-600 truncate" title={song.ar?.map((a: any) => a.name).join(' / ')}>
+                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-800 truncate" title={song.ar?.map((a: any) => a.name).join(' / ')}>
                                                     {song.ar?.map((a: any) => a.name).join(' / ')}
                                                 </div>
 
                                                 {/* 3. Album Column - Fixed Width ~25% */}
-                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-500 truncate" title={song.al?.name}>
+                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-700 truncate" title={song.al?.name}>
                                                     {song.al?.name}
                                                 </div>
 
