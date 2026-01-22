@@ -24,20 +24,47 @@ export async function embedMetadata(
 ): Promise<void> {
     const ext = path.extname(inputPath).toLowerCase();
 
-    // node-id3 only works with MP3 files
-    // For other formats (webm, m4a, etc.), we just copy and hope
-    // the filename carries the metadata
-    if (ext !== '.mp3') {
-        // For non-MP3 files, just copy with the correct name
-        // The filename itself will help identify the song
-        fs.copyFileSync(inputPath, outputPath);
-        console.log(`[embedMetadata] Non-MP3 file (${ext}), copied without ID3 tags`);
-        return;
-    }
+    // Check if we need to convert
+    // If input is not mp3, or if input IS mp3 but we want to ensure it's clean/standard,
+    // we can run it through ffmpeg.
+    // However, to save time, if it is already mp3 and we are just tagging, we might skip conversion
+    // UNLESS the user explicitly wants to ensure mp3 format.
+
+    // Strategy:
+    // 1. If input is mp3, copy to temp location (or just use as is) for tagging.
+    // 2. If input is NOT mp3, convert to mp3 at outputPath.
+    // 3. Tag the file at outputPath.
+
+    let fileToTag = outputPath;
 
     try {
-        // Read the original file
-        const buffer = fs.readFileSync(inputPath);
+        if (ext === '.mp3') {
+            // It's already mp3, just copy to destination then tag
+            fs.copyFileSync(inputPath, outputPath);
+        } else {
+            // Needs conversion
+            console.log(`[embedMetadata] Converting ${ext} to mp3...`);
+
+            // FFMPEG command: -i input -acodec libmp3lame -b:a 320k -y output
+            // Using execSync for simplicity in this async function, or promisified exec
+            const { exec } = require('child_process');
+            const util = require('util');
+            const execAsync = util.promisify(exec);
+
+            try {
+                // simple conversion
+                await execAsync(`ffmpeg -i "${inputPath}" -vn -ar 44100 -ac 2 -b:a 320k -f mp3 -y "${outputPath}"`);
+                console.log(`[embedMetadata] Conversion successful: ${outputPath}`);
+            } catch (ffmpegErr: any) {
+                console.error('[embedMetadata] FFMPEG conversion failed:', ffmpegErr);
+                // Fallback: just copy original and rename (hacky, might fail ID3)
+                // But better than nothing
+                fs.copyFileSync(inputPath, outputPath);
+            }
+        }
+
+        // Now tag the file at outputPath (which should be mp3 now)
+        const buffer = fs.readFileSync(outputPath);
 
         // Prepare ID3 tags
         const tags: NodeID3.Tags = {
@@ -79,14 +106,15 @@ export async function embedMetadata(
             fs.writeFileSync(outputPath, taggedBuffer);
             console.log(`[embedMetadata] Successfully embedded metadata for: ${metadata.title}`);
         } else {
-            // Fallback: just copy
-            fs.copyFileSync(inputPath, outputPath);
-            console.warn('[embedMetadata] Failed to write tags, copied original file');
+            console.warn('[embedMetadata] Failed to write tags (NodeID3 returned false)');
         }
+
     } catch (e) {
         console.error('[embedMetadata] Error:', e);
-        // Fallback: just copy
-        fs.copyFileSync(inputPath, outputPath);
+        // Ensure output exists at least
+        if (!fs.existsSync(outputPath)) {
+            try { fs.copyFileSync(inputPath, outputPath); } catch { }
+        }
     }
 }
 

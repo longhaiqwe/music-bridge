@@ -110,7 +110,7 @@ export async function POST(request: Request) {
                             ext = path.extname(downloadUrl).replace('.', '') || 'mp3';
                         }
 
-                        const safeFileName = getSafeFileName(song.name, ext);
+                        const safeFileName = getSafeFileName(song.name, 'mp3');
                         rawPath = path.join(TMP_DIR, `raw_${Date.now()}.${ext}`);
                         tmpPath = path.join(TMP_DIR, safeFileName);
 
