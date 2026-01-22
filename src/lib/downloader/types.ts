@@ -8,6 +8,7 @@ export interface MusicInfo {
     source: string; // 'youtube', 'myfreemp3', etc.
     originalId: string; // ID in the source system
     filename?: string; // Optional preferred filename (e.g. "Song - Artist")
+    viewCount?: number; // View count for quality ranking (e.g. YouTube views)
 }
 
 export interface SearchResult {

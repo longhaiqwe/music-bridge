@@ -13,6 +13,16 @@ export class QQMusicSource implements MusicSource {
         this.youtubeSource = new YoutubeSource();
     }
 
+    // Helper function to format view count
+    private formatViewCount(views: number): string {
+        if (views >= 1000000) {
+            return `${(views / 1000000).toFixed(1)}M`;
+        } else if (views >= 1000) {
+            return `${(views / 1000).toFixed(1)}K`;
+        }
+        return views.toString();
+    }
+
     async search(keyword: string): Promise<MusicInfo[]> {
         // Use existing QQ Music service to search
         const songs = await qqMusicService.search(keyword);
@@ -171,6 +181,15 @@ export class QQMusicSource implements MusicSource {
                     }
                 }
 
+                // Score 8: View Count Bonus (Quality indicator)
+                // Higher views = more popular = likely better quality/official version
+                if (res.viewCount && res.viewCount > 0) {
+                    // Logarithmic scale to avoid overwhelming other factors
+                    // 1K views = +10, 10K views = +20, 100K views = +30, 1M views = +40, 10M views = +50
+                    const viewBonus = Math.floor(Math.log10(res.viewCount) * 10);
+                    score += Math.min(viewBonus, 50); // Cap at 50 points
+                }
+
                 if (score > bestScore) {
                     bestScore = score;
                     bestMatch = res;
@@ -200,7 +219,8 @@ export class QQMusicSource implements MusicSource {
 
             const attempt1Result = await findMatch(query);
             if (attempt1Result.match) {
-                console.log(`[QQMusicSource] Found match on attempt 1: ${attempt1Result.match.name}`);
+                const viewStr = attempt1Result.match.viewCount ? ` (${this.formatViewCount(attempt1Result.match.viewCount)} views)` : '';
+                console.log(`[QQMusicSource] Found match on attempt 1: ${attempt1Result.match.name}${viewStr}`);
                 attempt1Result.match.filename = `${info.name} - ${info.artist}`;
                 return await this.youtubeSource.getDownloadUrl(attempt1Result.match);
             }
@@ -213,7 +233,8 @@ export class QQMusicSource implements MusicSource {
 
             const attempt2Result = await findMatch(simpleQuery);
             if (attempt2Result.match) {
-                console.log(`[QQMusicSource] Found match on attempt 2: ${attempt2Result.match.name}`);
+                const viewStr = attempt2Result.match.viewCount ? ` (${this.formatViewCount(attempt2Result.match.viewCount)} views)` : '';
+                console.log(`[QQMusicSource] Found match on attempt 2: ${attempt2Result.match.name}${viewStr}`);
                 attempt2Result.match.filename = `${info.name} - ${info.artist}`;
                 return await this.youtubeSource.getDownloadUrl(attempt2Result.match);
             }
@@ -232,7 +253,8 @@ export class QQMusicSource implements MusicSource {
 
                 const attempt3Result = await findMatch(traditionalQuery);
                 if (attempt3Result.match) {
-                    console.log(`[QQMusicSource] Found match on attempt 3 (Traditional): ${attempt3Result.match.name}`);
+                    const viewStr = attempt3Result.match.viewCount ? ` (${this.formatViewCount(attempt3Result.match.viewCount)} views)` : '';
+                    console.log(`[QQMusicSource] Found match on attempt 3 (Traditional): ${attempt3Result.match.name}${viewStr}`);
                     attempt3Result.match.filename = `${info.name} - ${info.artist}`;
                     return await this.youtubeSource.getDownloadUrl(attempt3Result.match);
                 }
@@ -243,7 +265,8 @@ export class QQMusicSource implements MusicSource {
             console.log(`[QQMusicSource] Retrying with name-only query: ${nameQuery}`);
             const attempt4Result = await findMatch(nameQuery);
             if (attempt4Result.match) {
-                console.log(`[QQMusicSource] Found match on attempt 4: ${attempt4Result.match.name}`);
+                const viewStr = attempt4Result.match.viewCount ? ` (${this.formatViewCount(attempt4Result.match.viewCount)} views)` : '';
+                console.log(`[QQMusicSource] Found match on attempt 4: ${attempt4Result.match.name}${viewStr}`);
                 attempt4Result.match.filename = `${info.name} - ${info.artist}`;
                 return await this.youtubeSource.getDownloadUrl(attempt4Result.match);
             }

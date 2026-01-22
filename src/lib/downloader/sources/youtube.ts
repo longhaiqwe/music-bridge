@@ -67,12 +67,17 @@ export class YoutubeSource implements MusicSource {
                             duration: data.duration,
                             coverUrl: data.thumbnail,
                             source: this.name,
-                            originalId: data.id
+                            originalId: data.id,
+                            viewCount: data.view_count || data.viewCount || 0
                         });
                     } catch (e) {
                         console.warn('Failed to parse yt-dlp output line', e);
                     }
                 }
+
+                // Sort by view count (descending) - highest views first
+                results.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+
                 return results;
             } catch (e) {
                 console.error('Youtube search failed:', e);
