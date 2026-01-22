@@ -148,6 +148,12 @@ export class QQMusicSource implements MusicSource {
                     console.log(`[Penalty] Bad version detected: ${resNameRaw} (-300 points)`);
                 }
 
+                // Score 5.5: Penalty for preview/sample versions
+                if (/试听|preview|sample|snippet|demo|片段/i.test(resNameRaw)) {
+                    score -= 100;
+                    console.log(`[Penalty] Preview/sample version detected: ${resNameRaw} (-100 points)`);
+                }
+
                 // Score 5: Duration Match
                 // Tolerance: 3 minutes diff is huge penalty, 1 minute is big penalty, small diff is bonus
                 if (info.duration > 0 && res.duration > 0) {
