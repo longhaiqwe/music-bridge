@@ -205,6 +205,12 @@ export class QQMusicSource implements MusicSource {
                     const cappedBonus = Math.min(viewBonus, 50);
                     score += cappedBonus;
                     console.log(`[Match] View count bonus: +${cappedBonus} (${viewStr})`);
+
+                    // EXTRA BONUS: Videos with >5M views get additional +100 points
+                    if (res.viewCount > 5000000) {
+                        score += 100;
+                        console.log(`[Match] EXTRA BONUS: +100 for超高播放量 (>5M views, ${viewStr})`);
+                    }
                 }
 
                 console.log(`[Match] Score: ${score} for "${resNameRaw}" (${viewStr})`);
