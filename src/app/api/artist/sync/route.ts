@@ -134,17 +134,51 @@ export async function POST(request: Request) {
                         const albumName = albumObj.name || '';
                         const coverUrl = albumObj.picUrl;
 
-                        // Fetch Lyrics (Search like single sync does)
+                        // Fetch Lyrics (Search like single sync does with validation and retry)
                         let lyrics = '';
+                        const MIN_LYRICS_LENGTH = 200; // Minimum chars to consider lyrics valid
+
                         try {
+                            // Attempt 1: Normal search
                             const query = `${song.name} ${artistName}`;
-                            const searchRes = await neteaseService.searchSong(query);
+                            let searchRes = await neteaseService.searchSong(query);
 
                             if (searchRes && searchRes.length > 0) {
-                                const bestMatch = searchRes[0];
+                                let bestMatch = searchRes[0];
                                 lyrics = await neteaseService.getLyric(bestMatch.id);
+
+                                // Attempt 2: Retry if lyrics too short (likely instrumental/wrong version)
+                                if (lyrics && lyrics.length < MIN_LYRICS_LENGTH) {
+                                    console.log(`[Lyrics] Lyrics too short (${lyrics.length} chars < ${MIN_LYRICS_LENGTH}), retrying with different query...`);
+
+                                    // Try with "原版" keyword to find original version
+                                    const retryQueries = [
+                                        `${song.name} ${artistName} 原版`,
+                                        `${song.name} ${artistName} 官方`,
+                                        `${song.name} ${artistName} 正版`
+                                    ];
+
+                                    for (const retryQuery of retryQueries) {
+                                        const retryRes = await neteaseService.searchSong(retryQuery);
+                                        if (retryRes && retryRes.length > 0) {
+                                            const retryMatch = retryRes[0];
+                                            const retryLyrics = await neteaseService.getLyric(retryMatch.id);
+
+                                            if (retryLyrics && retryLyrics.length > lyrics.length) {
+                                                console.log(`[Lyrics] Found better lyrics with query "${retryQuery}" (${retryLyrics.length} chars)`);
+                                                lyrics = retryLyrics;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (lyrics) {
-                                    console.log(`[Lyrics] Found lyrics for: ${song.name} (${lyrics.length} chars)`);
+                                    if (lyrics.length < MIN_LYRICS_LENGTH) {
+                                        console.log(`[Lyrics] ⚠️ Lyrics still short for: ${song.name} (${lyrics.length} chars)`);
+                                    } else {
+                                        console.log(`[Lyrics] Found lyrics for: ${song.name} (${lyrics.length} chars)`);
+                                    }
                                     log(`Lyrics found (${lyrics.length} chars).`);
                                 } else {
                                     console.log(`[Lyrics] No lyrics found for: ${song.name}`);

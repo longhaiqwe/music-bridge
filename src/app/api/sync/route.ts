@@ -27,8 +27,10 @@ export async function POST(request: Request) {
         step = 'metadata';
         console.log('Embedding metadata...');
 
-        // Fetch Lyrics (Best Effort)
+        // Fetch Lyrics (Best Effort with validation and retry)
         let lyrics = '';
+        const MIN_LYRICS_LENGTH = 200; // Minimum chars to consider lyrics valid
+
         try {
             console.log(`[Lyrics] Searching NetEase for: ${info.name} ${info.artist}`);
             const query = `${info.name} ${info.artist}`;
@@ -40,8 +42,39 @@ export async function POST(request: Request) {
                 console.log(`[Lyrics] Found match: ${bestMatch.name} (ID: ${bestMatch.id})`);
 
                 lyrics = await neteaseService.getLyric(bestMatch.id);
+
+                // Retry if lyrics too short (likely instrumental/wrong version)
+                if (lyrics && lyrics.length < MIN_LYRICS_LENGTH) {
+                    console.log(`[Lyrics] ⚠️ Lyrics too short (${lyrics.length} chars < ${MIN_LYRICS_LENGTH}), retrying...`);
+
+                    // Try with "原版" keyword to find original version
+                    const retryQueries = [
+                        `${info.name} ${info.artist} 原版`,
+                        `${info.name} ${info.artist} 官方`,
+                        `${info.name} ${info.artist} 正版`
+                    ];
+
+                    for (const retryQuery of retryQueries) {
+                        const retryRes = await neteaseService.searchSong(retryQuery);
+                        if (retryRes && retryRes.length > 0) {
+                            const retryMatch = retryRes[0];
+                            const retryLyrics = await neteaseService.getLyric(retryMatch.id);
+
+                            if (retryLyrics && retryLyrics.length > lyrics.length) {
+                                console.log(`[Lyrics] Found better lyrics with query "${retryQuery}" (${retryLyrics.length} chars)`);
+                                lyrics = retryLyrics;
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 if (lyrics) {
-                    console.log(`[Lyrics] Successfully fetched lyrics (${lyrics.length} chars)`);
+                    if (lyrics.length < MIN_LYRICS_LENGTH) {
+                        console.log(`[Lyrics] ⚠️ Lyrics still short (${lyrics.length} chars)`);
+                    } else {
+                        console.log(`[Lyrics] Successfully fetched lyrics (${lyrics.length} chars)`);
+                    }
                 } else {
                     console.log('[Lyrics] Lyrics empty');
                 }
