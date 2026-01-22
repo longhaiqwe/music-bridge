@@ -87,7 +87,8 @@ export class QQMusicSource implements MusicSource {
                 const resNameNorm = this.normalize(resNameRaw);
                 const resArtistNorm = this.normalize(res.artist);
 
-                candidates.push(`${res.name} (${res.artist})`);
+                const viewStr = res.viewCount ? `${this.formatViewCount(res.viewCount)} views` : 'N/A';
+                candidates.push(`${res.name} (${res.artist}) - ${viewStr}`);
 
                 // Check 1: Does title contain song name? (Check both Simplified and Traditional)
                 let nameMatch = resNameNorm.includes(infoNameNorm) || resNameNorm.includes(infoNameTradNorm);
@@ -97,7 +98,15 @@ export class QQMusicSource implements MusicSource {
                     nameMatch = resNameNorm.includes(infoNameBaseNorm) || resNameNorm.includes(infoNameBaseTradNorm);
                 }
 
+                // SPECIAL CASE: If view count is very high (>1M), relax the name match requirement
+                const isHighViewCount = res.viewCount && res.viewCount > 1000000;
+                if (!nameMatch && isHighViewCount) {
+                    console.log(`[Match] High view count video (${viewStr}) doesn't match title, including anyway: ${resNameRaw}`);
+                    nameMatch = true; // Allow high view count videos even without perfect title match
+                }
+
                 if (!nameMatch) {
+                    console.log(`[Match] Skipped (no title match): ${resNameRaw} - ${viewStr}`);
                     continue;
                 }
 
@@ -187,8 +196,12 @@ export class QQMusicSource implements MusicSource {
                     // Logarithmic scale to avoid overwhelming other factors
                     // 1K views = +10, 10K views = +20, 100K views = +30, 1M views = +40, 10M views = +50
                     const viewBonus = Math.floor(Math.log10(res.viewCount) * 10);
-                    score += Math.min(viewBonus, 50); // Cap at 50 points
+                    const cappedBonus = Math.min(viewBonus, 50);
+                    score += cappedBonus;
+                    console.log(`[Match] View count bonus: +${cappedBonus} (${viewStr})`);
                 }
+
+                console.log(`[Match] Score: ${score} for "${resNameRaw}" (${viewStr})`);
 
                 if (score > bestScore) {
                     bestScore = score;
