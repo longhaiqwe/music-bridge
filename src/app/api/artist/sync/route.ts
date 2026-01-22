@@ -134,18 +134,28 @@ export async function POST(request: Request) {
                         const albumName = albumObj.name || '';
                         const coverUrl = albumObj.picUrl;
 
-                        // Fetch Lyrics (We have the direct NetEase ID)
+                        // Fetch Lyrics (Search like single sync does)
                         let lyrics = '';
                         try {
-                            log(`Fetching lyrics for ${song.name}...`);
-                            lyrics = await neteaseService.getLyric(song.id);
-                            if (lyrics) {
-                                log(`Lyrics found (${lyrics.length} chars).`);
+                            const query = `${song.name} ${artistName}`;
+                            const searchRes = await neteaseService.searchSong(query);
+
+                            if (searchRes && searchRes.length > 0) {
+                                const bestMatch = searchRes[0];
+                                lyrics = await neteaseService.getLyric(bestMatch.id);
+                                if (lyrics) {
+                                    console.log(`[Lyrics] Found lyrics for: ${song.name} (${lyrics.length} chars)`);
+                                    log(`Lyrics found (${lyrics.length} chars).`);
+                                } else {
+                                    console.log(`[Lyrics] No lyrics found for: ${song.name}`);
+                                    log(`No lyrics found.`);
+                                }
                             } else {
+                                console.log(`[Lyrics] No match found for: ${song.name}`);
                                 log(`No lyrics found.`);
                             }
                         } catch (e: any) {
-                            log(`Failed to fetch lyrics: ${e.message}`);
+                            console.warn(`[Lyrics] Failed to fetch lyrics for: ${song.name}`, e.message);
                         }
 
                         await embedMetadata(rawPath, tmpPath, {
@@ -160,10 +170,7 @@ export async function POST(request: Request) {
                         log(`Uploading ${song.name}...`);
                         const uploadRes = await neteaseService.uploadToCloudDisk(tmpPath);
 
-                        // Debug: Log complete response for the first few uploads to understand structure
-                        if (i < 3) {
-                            console.log(`[Upload Debug] Response for ${song.name}:`, JSON.stringify(uploadRes, null, 2));
-                        }
+
 
                         // PRIORITIZE privateCloud.songId over songId
                         // songId is often the "matched" public ID (which might be grey/unavailable)

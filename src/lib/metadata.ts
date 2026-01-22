@@ -93,6 +93,7 @@ export async function embedMetadata(
 
         // Add Lyrics
         if (metadata.lyrics) {
+            console.log(`[embedMetadata] Embedding lyrics (${metadata.lyrics.length} chars) into: ${metadata.title}`);
             tags.unsynchronisedLyrics = {
                 language: 'eng',
                 text: metadata.lyrics
