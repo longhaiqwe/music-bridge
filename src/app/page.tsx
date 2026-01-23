@@ -23,16 +23,16 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-gray-50 flex flex-col items-center py-12">
-      <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold text-blue-600 flex items-center justify-center gap-2">
-          <CloudLightning className="w-10 h-10" />
+    <main className="min-h-screen bg-gray-50 flex flex-col items-center py-6 md:py-12">
+      <div className="text-center mb-6 md:mb-10 px-4">
+        <h1 className="text-2xl md:text-4xl font-extrabold text-blue-600 flex items-center justify-center gap-2">
+          <CloudLightning className="w-7 h-7 md:w-10 md:h-10" />
           MusicBridge
         </h1>
-        <p className="text-gray-600 mt-2">轻松同步你喜欢的音乐到网易云音乐云盘。</p>
+        <p className="text-sm md:text-base text-gray-600 mt-2">轻松同步你喜欢的音乐到网易云音乐云盘。</p>
       </div>
 
-      <div className="w-full max-w-4xl px-4 grid gap-8">
+      <div className="w-full max-w-4xl px-2 md:px-4 grid gap-6 md:gap-8">
         {!isLogged && (
           <div className="w-full flex justify-center">
             <LoginPanel onLoginSuccess={() => setIsLogged(true)} />

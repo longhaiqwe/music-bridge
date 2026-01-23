@@ -227,7 +227,7 @@ export function ArtistSync() {
 
 
     return (
-        <div className="w-full max-w-5xl mx-auto p-6 space-y-6">
+        <div className="w-full max-w-5xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
             {/* Top Controls: Singer & Quantity */}
             <div className="flex flex-col md:flex-row gap-4 items-end">
                 {/* Singer Input */}
@@ -242,12 +242,12 @@ export function ArtistSync() {
                             onChange={(e) => setKeyword(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch(e)}
                             placeholder="输入歌手名字 (如: 周杰伦)"
-                            className="flex-1 p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-0 outline-none text-lg transition-colors placeholder:text-gray-500 text-gray-900"
+                            className="flex-1 p-2 border rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
                         />
                         <button
                             onClick={handleSearch}
                             disabled={loading}
-                            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 font-bold transition-transform active:scale-95 whitespace-nowrap"
+                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                         >
                             {loading ? <Loader2 className="animate-spin" /> : '搜索'}
                         </button>
@@ -274,72 +274,81 @@ export function ArtistSync() {
                         min={0}
                         max={500}
                         disabled={syncStatus === 'syncing'}
-                        className="w-full p-3 border-2 border-gray-200 rounded-xl bg-white focus:border-blue-500 focus:ring-0 outline-none text-lg text-gray-900 placeholder:text-gray-500"
+                        className="w-full p-2 border rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
                     />
                 </div>
             </div>
 
-            {/* Main Display Area */}
-            <div className="relative w-full min-h-[500px] border-4 border-gray-100 rounded-2xl bg-white shadow-sm p-6 overflow-hidden flex flex-col">
+            {/* Main Display Area - 根据状态动态调整最小高度 */}
+            <div className={`relative w-full border-2 md:border-4 border-gray-100 rounded-xl md:rounded-2xl bg-white shadow-sm p-3 md:p-6 overflow-hidden flex flex-col ${!selectedArtist && syncStatus === 'idle' ? 'min-h-[180px]' : 'min-h-[400px] md:min-h-[500px]'}`}>
 
                 {/* State 1: Empty / Initial */}
                 {!selectedArtist && syncStatus === 'idle' && (
-                    <div className="flex-1 flex flex-col items-center justify-center text-gray-300">
-                        <Music className="w-20 h-20 mb-4 opacity-20" />
-                        <p className="text-lg text-gray-600">请在上方搜索歌手，系统将自动展示热门歌曲</p>
+                    <div className="flex-1 flex flex-col items-center justify-center text-gray-300 py-8">
+                        <Music className="w-12 h-12 md:w-16 md:h-16 mb-3 opacity-20" />
+                        <p className="text-sm md:text-base text-gray-500 text-center px-4">请在上方搜索歌手，系统将自动展示热门歌曲</p>
                     </div>
                 )}
 
                 {/* State 2: Song Preview & Sync Confirm */}
                 {selectedArtist && syncStatus === 'idle' && (
                     <div className="flex-1 flex flex-col animate-fade-in">
-                        <div className="flex items-center justify-between mb-4">
+                        {/* 移动端响应式头部布局 */}
+                        <div className="flex flex-col gap-4 mb-4">
+                            {/* 第一行：歌手信息 */}
                             <div className="flex items-center gap-3">
-                                <h3 className="text-xl font-bold flex items-center gap-2">
-                                    <img src={selectedArtist.picUrl} className="w-10 h-10 rounded-full object-cover shadow-sm" />
-                                    {selectedArtist.name}
-                                    <span className="text-sm font-normal text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                                        将同步前 {toSyncSongs.length} 首歌曲
+                                <img src={selectedArtist.picUrl} className="w-12 h-12 md:w-10 md:h-10 rounded-full object-cover shadow-sm flex-shrink-0" />
+                                <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 min-w-0">
+                                    <h3 className="text-lg md:text-xl font-bold text-gray-900 truncate">
+                                        {selectedArtist.name}
+                                    </h3>
+                                    <span className="text-xs md:text-sm font-normal text-gray-500 bg-gray-100 px-2 md:px-3 py-0.5 md:py-1 rounded-full w-fit">
+                                        将同步 {toSyncSongs.length} 首歌曲
                                     </span>
-                                </h3>
+                                </div>
                             </div>
 
-                            <div className="flex items-center gap-4">
-                                {duplicateInfo.hasDuplicates && (
-                                    <div className="flex items-center gap-3 bg-yellow-50 text-yellow-700 px-4 py-2 rounded-lg border border-yellow-100 animate-fade-in">
-                                        <AlertCircle className="w-5 h-5" />
-                                        <span className="text-sm font-medium">
-                                            检测到 {duplicateInfo.count} 首重复歌曲
-                                        </span>
-                                        <button
-                                            onClick={handleRemoveDuplicates}
-                                            className="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1 rounded-md transition-colors font-bold"
-                                        >
-                                            移除重复
-                                        </button>
-                                    </div>
-                                )}
+                            {/* 重复歌曲警告 - 独立一行 */}
+                            {duplicateInfo.hasDuplicates && (
+                                <div className="flex flex-wrap items-center gap-2 md:gap-3 bg-yellow-50 text-yellow-700 px-3 md:px-4 py-2 rounded-lg border border-yellow-100 animate-fade-in">
+                                    <AlertCircle className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" />
+                                    <span className="text-xs md:text-sm font-medium">
+                                        检测到 {duplicateInfo.count} 首重复歌曲
+                                    </span>
+                                    <button
+                                        onClick={handleRemoveDuplicates}
+                                        className="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1.5 rounded-md transition-colors font-bold active:scale-95"
+                                    >
+                                        移除重复
+                                    </button>
+                                </div>
+                            )}
 
-                                <div className="flex items-center gap-2 mr-2">
+                            {/* 第二行：操作区域 */}
+                            <div className="flex items-center justify-between gap-3">
+                                {/* 创建歌单选项 */}
+                                <label htmlFor="createPlaylist" className="flex items-center gap-2 cursor-pointer select-none">
                                     <input
                                         type="checkbox"
                                         id="createPlaylist"
                                         checked={createPlaylist}
                                         onChange={(e) => setCreatePlaylist(e.target.checked)}
-                                        className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                                        className="w-5 h-5 md:w-5 md:h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
                                     />
-                                    <label htmlFor="createPlaylist" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                                    <div className="text-sm font-medium text-gray-700">
                                         创建歌单
                                         <span className="text-xs text-gray-400 block font-normal">如失败请取消勾选</span>
-                                    </label>
-                                </div>
+                                    </div>
+                                </label>
 
+                                {/* 开始同步按钮 */}
                                 <button
                                     onClick={handleStartSync}
-                                    className="px-8 py-2 bg-green-500 text-white font-bold rounded-lg shadow hover:bg-green-600 transition-colors flex items-center gap-2"
+                                    className="px-5 md:px-8 py-2.5 md:py-2 bg-green-500 text-white font-bold rounded-lg shadow hover:bg-green-600 transition-colors flex items-center gap-2 active:scale-95 flex-shrink-0"
                                 >
                                     <CheckCircle2 className="w-5 h-5" />
-                                    开始同步
+                                    <span className="hidden sm:inline">开始同步</span>
+                                    <span className="sm:hidden">同步</span>
                                 </button>
                             </div>
                         </div>
@@ -356,38 +365,38 @@ export function ArtistSync() {
                                         <p className="text-center py-10 text-gray-400">未找到歌曲</p>
                                     ) : (
                                         toSyncSongs.map((song, i) => (
-                                            <div key={song.id} className="group flex items-center p-3 gap-2 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100">
+                                            <div key={song.id} className="group flex items-center p-2 md:p-3 gap-2 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100 active:bg-blue-50">
                                                 {/* 1. Song Info (Index, Image, Name) - Flex 1 */}
-                                                <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
-                                                    <span className="text-gray-400 font-mono w-6 text-right font-medium flex-shrink-0">{i + 1}</span>
+                                                <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
+                                                    <span className="text-gray-400 font-mono w-5 md:w-6 text-right text-sm md:text-base font-medium flex-shrink-0">{i + 1}</span>
                                                     {song.al?.picUrl && (
                                                         <img
                                                             src={song.al.picUrl}
                                                             alt={song.al.name}
-                                                            className="w-10 h-10 rounded-md object-cover border border-gray-100 flex-shrink-0"
+                                                            className="w-10 h-10 md:w-10 md:h-10 rounded-md object-cover border border-gray-100 flex-shrink-0"
                                                             loading="lazy"
                                                         />
                                                     )}
-                                                    <div className="truncate font-medium text-gray-700 group-hover:text-blue-700" title={song.name}>
+                                                    <div className="truncate font-medium text-sm md:text-base text-gray-700 group-hover:text-blue-700" title={song.name}>
                                                         {song.name}
                                                     </div>
                                                 </div>
 
-                                                {/* 2. Artist Column - Fixed Width ~25% */}
+                                                {/* 2. Artist Column - Fixed Width ~25% - 隐藏在移动端 */}
                                                 <div className="hidden md:block w-1/4 px-2 text-sm text-gray-800 truncate" title={song.ar?.map((a: any) => a.name).join(' / ')}>
                                                     {song.ar?.map((a: any) => a.name).join(' / ')}
                                                 </div>
 
-                                                {/* 3. Album Column - Fixed Width ~25% */}
+                                                {/* 3. Album Column - Fixed Width ~25% - 隐藏在移动端 */}
                                                 <div className="hidden md:block w-1/4 px-2 text-sm text-gray-700 truncate" title={song.al?.name}>
                                                     {song.al?.name}
                                                 </div>
 
-                                                {/* 4. Action Column */}
-                                                <div className="w-10 flex justify-end shrink-0">
+                                                {/* 4. Action Column - 移动端始终可见 */}
+                                                <div className="w-8 md:w-10 flex justify-end shrink-0">
                                                     <button
                                                         onClick={() => handleRemoveSong(song.id)}
-                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                        className="p-2 md:p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all md:opacity-0 md:group-hover:opacity-100 active:bg-red-100"
                                                         title="移除此歌曲"
                                                     >
                                                         <X className="w-4 h-4" />
