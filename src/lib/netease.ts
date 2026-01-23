@@ -3,8 +3,7 @@ import path from 'path';
 // @ts-ignore
 import NeteaseCloudMusicApi from 'NeteaseCloudMusicApi';
 
-// @ts-ignore
-import NeteaseCloudMusicApi from 'NeteaseCloudMusicApi';
+
 
 // Interface for API responses (simplified)
 interface ApiResponse {
