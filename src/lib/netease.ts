@@ -21,10 +21,15 @@ export class NeteaseService {
   }
 
   /**
-   * 获取有效的 Cookie：优先使用传入的，否则使用默认的
+   * 获取有效的 Cookie：优先使用传入的。
+   * 如果传入了 clientCookie（即使是空字符串），说明是客户端请求，不再回退到服务器默认账号。
    */
   private getCookie(clientCookie?: string): string {
-    return clientCookie || this.defaultCookie;
+    if (clientCookie !== undefined) {
+      return clientCookie;
+    }
+    // 只有在非 API 请求（内部直接调用且无上下文）时才回退到默认
+    return this.defaultCookie;
   }
 
   /**
