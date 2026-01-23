@@ -63,12 +63,21 @@ export class YoutubeSource implements MusicSource {
         if (/试听|Preview|Teaser|Trailer/i.test(videoNameRaw)) score -= 50;
 
         // 2. Channel Match
+        // 2. Artist Match (Channel & Title)
         if (artist) {
-            const channelNorm = this.normalize(video.artist); // video.artist is uploader
             const artistNorm = this.normalize(artist);
             const artistTradNorm = this.normalize(converter(artist));
 
+            // Channel/Uploader Match
+            const channelNorm = this.normalize(video.artist); // video.artist is uploader
             if (channelNorm.includes(artistNorm) || channelNorm.includes(artistTradNorm)) {
+                score += 40;
+            }
+
+            // Title Match
+            // If the title contains the artist name, it's a strong signal.
+            // This helps when the artist is not the uploader (e.g. lyric videos, generated channels)
+            if (videoNameNorm.includes(artistNorm) || videoNameNorm.includes(artistTradNorm)) {
                 score += 40;
             }
         }

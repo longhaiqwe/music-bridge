@@ -219,15 +219,23 @@ export async function POST(request: Request) {
                         } else if (uploadRes?.id) {
                             finalCloudId = uploadRes.id;
                             log(`Uploaded success! Using General ID: ${finalCloudId}`);
+                        } else if (uploadRes?.result?.songId) {
+                            finalCloudId = uploadRes.result.songId;
+                            log(`Uploaded success! Using Result ID: ${finalCloudId}`);
+                        } else if (uploadRes?.data?.songId) {
+                            finalCloudId = uploadRes.data.songId;
+                            log(`Uploaded success! Using Data ID: ${finalCloudId}`);
                         }
 
                         if (finalCloudId) {
                             cloudIds.push(finalCloudId);
                             results.success++;
                         } else {
-                            log(`Upload response ambiguous (check logs).`, uploadRes);
+                            log(`Upload response ambiguous (check logs). Response keys: ${Object.keys(uploadRes || {}).join(', ')}`, uploadRes);
+                            // Even if we can't find an ID, if the upload didn't throw, it "succeeded" in uploading but failed to get ID.
+                            // We treat it as failed for playlist purposes.
                             results.failed++;
-                            results.failedSongs.push(`${song.name} (Unknown upload response)`);
+                            results.failedSongs.push(`${song.name} (Upload ID missing)`);
                         }
 
                     } catch (err: any) {
@@ -267,26 +275,34 @@ export async function POST(request: Request) {
 
                 // 3. Create Playlist
                 if (cloudIds.length > 0) {
-                    log(`Creating playlist: ${artistName}...`);
-                    const playlist = await neteaseService.createPlaylist(artistName);
+                    try {
+                        log(`Creating playlist: ${artistName}...`);
+                        const playlist = await neteaseService.createPlaylist(artistName);
 
-                    if (playlist && playlist.id) {
-                        log(`Adding ${cloudIds.length} songs to playlist(ID: ${playlist.id})...`);
-                        // Reverse the order so that the first searched song appears first in the playlist
-                        // (Counteracting the 'newest first' or stack behavior effectively)
-                        // Also deduplicate to prevent API errors
-                        const uniqueCloudIds = Array.from(new Set(cloudIds));
-                        const reversedCloudIds = [...uniqueCloudIds].reverse();
+                        if (playlist && playlist.id) {
+                            log(`Adding ${cloudIds.length} songs to playlist(ID: ${playlist.id})...`);
+                            // Reverse the order so that the first searched song appears first in the playlist
+                            // (Counteracting the 'newest first' or stack behavior effectively)
+                            // Also deduplicate to prevent API errors
+                            const uniqueCloudIds = Array.from(new Set(cloudIds));
+                            const reversedCloudIds = [...uniqueCloudIds].reverse();
 
-                        log(`Adding ${reversedCloudIds.length} unique songs to playlist(ID: ${playlist.id})...`);
-                        const added = await neteaseService.addSongsToPlaylist(playlist.id, reversedCloudIds);
-                        if (added) {
-                            log('Playlist updated successfully!');
+                            log(`Adding ${reversedCloudIds.length} unique songs to playlist(ID: ${playlist.id})...`);
+                            const added = await neteaseService.addSongsToPlaylist(playlist.id, reversedCloudIds);
+                            if (added) {
+                                log('Playlist updated successfully!');
+                            } else {
+                                log('Warning: Failed to add some songs to the playlist.');
+                            }
                         } else {
-                            log('Warning: Failed to add some songs to the playlist.');
+                            log('Failed to create playlist (No ID returned).');
                         }
-                    } else {
-                        log('Failed to create playlist.');
+                    } catch (playlistError: any) {
+                        const errMsg = playlistError?.body?.message || playlistError.message || JSON.stringify(playlistError);
+                        log(`Warning: Playlist creation failed: ${errMsg}`);
+                        if (playlistError?.status === 405) {
+                            log('Tip: NetEase API returned "Too Frequent". Try manually creating a playlist later.');
+                        }
                     }
                 } else {
                     log('No songs uploaded, skipping playlist creation.');
