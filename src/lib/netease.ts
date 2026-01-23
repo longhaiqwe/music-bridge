@@ -3,7 +3,8 @@ import path from 'path';
 // @ts-ignore
 import NeteaseCloudMusicApi from 'NeteaseCloudMusicApi';
 
-const COOKIE_FILE = path.join(process.cwd(), 'cookie.json');
+// @ts-ignore
+import NeteaseCloudMusicApi from 'NeteaseCloudMusicApi';
 
 // Interface for API responses (simplified)
 interface ApiResponse {
@@ -13,66 +14,7 @@ interface ApiResponse {
 }
 
 export class NeteaseService {
-  // 服务器默认 Cookie（用于兼容旧模式，如环境变量配置）
-  private defaultCookie: string = '';
-
   constructor() {
-    this.loadDefaultCookie();
-  }
-
-  /**
-   * 获取有效的 Cookie：优先使用传入的。
-   * 如果传入了 clientCookie（即使是空字符串），说明是客户端请求，不再回退到服务器默认账号。
-   */
-  private getCookie(clientCookie?: string): string {
-    if (clientCookie !== undefined) {
-      return clientCookie;
-    }
-    // 只有在非 API 请求（内部直接调用且无上下文）时才回退到默认
-    return this.defaultCookie;
-  }
-
-  /**
-   * 加载默认 Cookie（从环境变量或本地文件）
-   */
-  private loadDefaultCookie() {
-    // 优先从环境变量读取 Cookie（用于云端部署）
-    const envCookie = process.env.NETEASE_COOKIES;
-    if (envCookie) {
-      try {
-        if (envCookie.startsWith('{')) {
-          const json = JSON.parse(envCookie);
-          this.defaultCookie = json.cookie || envCookie;
-          console.log('[NeteaseService] Loaded default cookie from NETEASE_COOKIES env (JSON format).');
-        } else {
-          this.defaultCookie = envCookie;
-          console.log('[NeteaseService] Loaded default cookie from NETEASE_COOKIES env (raw string).');
-        }
-        return;
-      } catch (e) {
-        console.warn('[NeteaseService] Failed to parse NETEASE_COOKIES env:', e);
-      }
-    }
-
-    // Fallback: 从本地文件读取
-    if (fs.existsSync(COOKIE_FILE)) {
-      try {
-        const data = fs.readFileSync(COOKIE_FILE, 'utf-8');
-        const json = JSON.parse(data);
-        console.log('[NeteaseService] Loaded cookie file. UpdatedAt:', new Date(json.updatedAt).toLocaleString());
-
-        const ONE_DAY = 24 * 60 * 60 * 1000;
-        if (!json.updatedAt || (Date.now() - json.updatedAt < ONE_DAY)) {
-          this.defaultCookie = json.cookie;
-          console.log('[NeteaseService] Default cookie is valid and loaded.');
-        } else {
-          this.defaultCookie = '';
-          console.log('[NeteaseService] Default cookie is EXPIRED. (Age > 24h)');
-        }
-      } catch (e) {
-        console.error('Failed to load cookie:', e);
-      }
-    }
   }
 
   async loginQrCodeKey(): Promise<string> {
@@ -101,7 +43,7 @@ export class NeteaseService {
 
     // 登录成功时返回 cookie 给调用方
     if (res?.body?.code === 803) {
-      console.log('[NeteaseService] Login successful (803).');
+      console.log('[NeteaseService] Login successful (803). Returning cookie to client.');
       return {
         ...res.body,
         cookie: res.body.cookie // 将 cookie 返回给前端保存
@@ -111,8 +53,7 @@ export class NeteaseService {
     return res.body;
   }
 
-  async getUserInfo(clientCookie?: string): Promise<any> {
-    const cookie = this.getCookie(clientCookie);
+  async getUserInfo(cookie?: string): Promise<any> {
     if (!cookie) return null;
     try {
       const res = await NeteaseCloudMusicApi.user_account({
@@ -125,8 +66,7 @@ export class NeteaseService {
     }
   }
 
-  async uploadToCloudDisk(filePath: string, clientCookie?: string): Promise<any> {
-    const cookie = this.getCookie(clientCookie);
+  async uploadToCloudDisk(filePath: string, cookie?: string): Promise<any> {
     if (!cookie) throw new Error('Not logged in');
 
     const fileBuffer = fs.readFileSync(filePath);
@@ -161,8 +101,7 @@ export class NeteaseService {
     throw lastError;
   }
 
-  async getCloudDiskSongs(limit: number = 200, offset: number = 0, clientCookie?: string): Promise<any[]> {
-    const cookie = this.getCookie(clientCookie);
+  async getCloudDiskSongs(limit: number = 200, offset: number = 0, cookie?: string): Promise<any[]> {
     if (!cookie) throw new Error('Not logged in');
     try {
       const res = await NeteaseCloudMusicApi.user_cloud({
@@ -177,8 +116,7 @@ export class NeteaseService {
     }
   }
 
-  async searchArtist(keyword: string, clientCookie?: string): Promise<any[]> {
-    const cookie = this.getCookie(clientCookie);
+  async searchArtist(keyword: string, cookie?: string): Promise<any[]> {
     if (!cookie) throw new Error('Not logged in');
     try {
       const res = await NeteaseCloudMusicApi.cloudsearch({
@@ -194,8 +132,7 @@ export class NeteaseService {
     }
   }
 
-  async searchSong(keyword: string, clientCookie?: string): Promise<any[]> {
-    const cookie = this.getCookie(clientCookie);
+  async searchSong(keyword: string, cookie?: string): Promise<any[]> {
     if (!cookie) {
       console.warn('[searchSong] Not logged in, returning empty results');
       return [];
@@ -214,8 +151,7 @@ export class NeteaseService {
     }
   }
 
-  async getLyric(songId: string | number, clientCookie?: string): Promise<string> {
-    const cookie = this.getCookie(clientCookie);
+  async getLyric(songId: string | number, cookie?: string): Promise<string> {
     try {
       const res = await NeteaseCloudMusicApi.lyric({
         id: songId,
@@ -228,8 +164,7 @@ export class NeteaseService {
     }
   }
 
-  async getArtistTopSongs(artistId: string | number, clientCookie?: string): Promise<any[]> {
-    const cookie = this.getCookie(clientCookie);
+  async getArtistTopSongs(artistId: string | number, cookie?: string): Promise<any[]> {
     if (!cookie) throw new Error('Not logged in');
     try {
       const res = await NeteaseCloudMusicApi.artist_top_song({
@@ -243,8 +178,7 @@ export class NeteaseService {
     }
   }
 
-  async getArtistDetail(artistId: string | number, clientCookie?: string): Promise<any> {
-    const cookie = this.getCookie(clientCookie);
+  async getArtistDetail(artistId: string | number, cookie?: string): Promise<any> {
     if (!cookie) throw new Error('Not logged in');
     try {
       const res = await NeteaseCloudMusicApi.artist_detail({
@@ -258,8 +192,7 @@ export class NeteaseService {
     }
   }
 
-  async createPlaylist(name: string, clientCookie?: string): Promise<any> {
-    const cookie = this.getCookie(clientCookie);
+  async createPlaylist(name: string, cookie?: string): Promise<any> {
     if (!cookie) throw new Error('Not logged in');
     try {
       const res = await NeteaseCloudMusicApi.playlist_create({
@@ -274,8 +207,7 @@ export class NeteaseService {
     }
   }
 
-  async addSongsToPlaylist(pid: string | number, songIds: (string | number)[], clientCookie?: string): Promise<boolean> {
-    const cookie = this.getCookie(clientCookie);
+  async addSongsToPlaylist(pid: string | number, songIds: (string | number)[], cookie?: string): Promise<boolean> {
     if (!cookie) throw new Error('Not logged in');
 
     const tracks = songIds.join(',');
