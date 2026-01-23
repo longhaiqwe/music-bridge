@@ -20,20 +20,32 @@ export class NeteaseService {
   }
 
   private loadCookie() {
+    // 优先从环境变量读取 Cookie（用于云端部署）
+    const envCookie = process.env.NETEASE_COOKIES;
+    if (envCookie) {
+      try {
+        // 环境变量可以是 JSON 格式 {"cookie": "...", "updatedAt": ...} 或纯 cookie 字符串
+        if (envCookie.startsWith('{')) {
+          const json = JSON.parse(envCookie);
+          this.cookie = json.cookie || envCookie;
+          console.log('[NeteaseService] Loaded cookie from NETEASE_COOKIES env (JSON format).');
+        } else {
+          this.cookie = envCookie;
+          console.log('[NeteaseService] Loaded cookie from NETEASE_COOKIES env (raw string).');
+        }
+        // 环境变量中的 Cookie 不检查过期，由用户自己管理
+        return;
+      } catch (e) {
+        console.warn('[NeteaseService] Failed to parse NETEASE_COOKIES env:', e);
+      }
+    }
+
+    // Fallback: 从本地文件读取
     if (fs.existsSync(COOKIE_FILE)) {
       try {
         const data = fs.readFileSync(COOKIE_FILE, 'utf-8');
         const json = JSON.parse(data);
         console.log('[NeteaseService] Loaded cookie file. UpdatedAt:', new Date(json.updatedAt).toLocaleString());
-
-        // Check for expiration (1 day = 24 * 60 * 60 * 1000 ms)
-        // If updatedAt is missing, we also accept it this time (backward compatibility) 
-        // OR we can force re-login. Given user request, let's strictly enforce or maybe expire legacy?
-        // Let's implement strict expiration if user wants security.
-        // But to be friendly, if updatedAt is missing, maybe we should assume it's old and expire it, 
-        // OR treating it as "unknown" and valid for now? 
-        // User asked for "safety", so expiring legacy/sessions without timestamp is safer.
-        // I will expire if updatedAt is missing to ensure everything complies with the new policy.
 
         const ONE_DAY = 24 * 60 * 60 * 1000;
         if (!json.updatedAt || (Date.now() - json.updatedAt < ONE_DAY)) {

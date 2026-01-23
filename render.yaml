@@ -2,8 +2,15 @@ services:
   - type: web
     name: music-bridge
     runtime: docker
-    plan: free
+    plan: starter  # 免费方案会休眠，starter 是 $7/月
     autoDeploy: true
+    healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
+      # 网易云音乐 Cookie - 从 Render Dashboard 手动配置
+      - key: NETEASE_COOKIES
+        sync: false  # 不同步到 render.yaml，需在 Dashboard 手动设置
+      # YouTube Cookie (可选) - 用于绕过年龄限制等
+      - key: YOUTUBE_COOKIES
+        sync: false
