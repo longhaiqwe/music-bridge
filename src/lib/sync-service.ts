@@ -57,13 +57,23 @@ export async function processSongSync(
             const qqSongs = await qqMusicService.search(query);
 
             const isLive = (name: string) => /live|concert|现场|演唱会/i.test(name);
+            const isTargetLive = isLive(baseInfo.name);
             let robustCandidate = null;
             let finalMatch = null;
 
             for (const qs of qqSongs) {
-                if (isLive(qs.name)) {
-                    if (!robustCandidate) robustCandidate = qs;
-                    continue;
+                const isCandidateLive = isLive(qs.name);
+
+                if (isTargetLive) {
+                    if (!isCandidateLive) {
+                        if (!robustCandidate) robustCandidate = qs;
+                        continue;
+                    }
+                } else {
+                    if (isCandidateLive) {
+                        if (!robustCandidate) robustCandidate = qs;
+                        continue;
+                    }
                 }
 
                 // Check Lyrics
