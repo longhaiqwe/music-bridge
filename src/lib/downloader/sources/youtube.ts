@@ -29,7 +29,7 @@ export class YoutubeSource implements MusicSource {
         return str.replace(/\s*[\(（][^)\）]*[\)）]\s*/g, ' ').trim();
     }
 
-    private calculateScore(video: MusicInfo, keyword: string, options?: { artist?: string; duration?: number }): number {
+    private calculateScore(video: MusicInfo, keyword: string, options?: { artist?: string; duration?: number; songName?: string }): number {
         let score = 0;
         const videoNameRaw = video.name;
         const videoNameNorm = this.normalize(videoNameRaw);
@@ -40,6 +40,7 @@ export class YoutubeSource implements MusicSource {
 
         const artist = options?.artist || '';
         const duration = options?.duration || 0;
+        const songName = options?.songName || '';
 
         // 1. Keywords (Title)
         if (/Official|官方|MV|Music Video/i.test(videoNameRaw)) score += 50;
@@ -62,7 +63,17 @@ export class YoutubeSource implements MusicSource {
         if (/Reaction|Tutorial|Guitar|Piano/i.test(videoNameRaw)) score -= 50;
         if (/试听|Preview|Teaser|Trailer/i.test(videoNameRaw)) score -= 50;
 
-        // 2. Channel Match
+        // NEW: Title Mismatch Penalty
+        // If we know the exact song name, the video title MUST contain it (normalized).
+        if (songName) {
+            const songNameNorm = this.normalize(songName);
+            const songNameTradNorm = this.normalize(converter(songName));
+            if (!videoNameNorm.includes(songNameNorm) && !videoNameNorm.includes(songNameTradNorm)) {
+                // Strict penalty for unrelated songs that might have matched just the artist or some description keywords
+                score -= 50;
+            }
+        }
+
         // 2. Artist Match (Channel & Title)
         if (artist) {
             const artistNorm = this.normalize(artist);
@@ -128,7 +139,7 @@ export class YoutubeSource implements MusicSource {
         }
     }
 
-    async search(keyword: string, options?: { artist?: string; duration?: number }): Promise<MusicInfo[]> {
+    async search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]> {
         return this.withCookies(async (cookieFile) => {
             try {
                 console.log(`[YoutubeSource] Searching for: ${keyword}`);

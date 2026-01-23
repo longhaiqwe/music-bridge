@@ -15,7 +15,7 @@ export class DownloadManager {
         console.log(`Registered source: ${source.name}`);
     }
 
-    async search(keyword: string, options?: { artist?: string; duration?: number }): Promise<MusicInfo[]> {
+    async search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]> {
         const results = await Promise.all(
             this.sources.map(async (source) => {
                 try {

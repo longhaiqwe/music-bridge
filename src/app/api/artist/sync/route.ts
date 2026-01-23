@@ -244,7 +244,7 @@ export async function POST(request: Request) {
                         });
 
                         // Upload to Cloud
-                        log(`Uploading ${song.name}...`);
+                        log(`Uploading ${song.name} to Netease Cloud Disk...`);
                         const uploadRes = await neteaseService.uploadToCloudDisk(tmpPath);
 
 

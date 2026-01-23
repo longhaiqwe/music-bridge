@@ -9,6 +9,7 @@ export interface MusicInfo {
     originalId: string; // ID in the source system
     filename?: string; // Optional preferred filename (e.g. "Song - Artist")
     viewCount?: number; // View count for quality ranking (e.g. YouTube views)
+    songName?: string; // Explicit song name for strict title matching
 }
 
 export interface SearchResult {
@@ -18,7 +19,7 @@ export interface SearchResult {
 
 export interface MusicSource {
     name: string;
-    search(keyword: string, options?: { artist?: string; duration?: number }): Promise<MusicInfo[]>;
+    search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]>;
     getDownloadUrl(info: MusicInfo): Promise<string>;
     // Returns a stream or buffer (handled by caller fetching the URL)
 }

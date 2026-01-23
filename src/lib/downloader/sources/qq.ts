@@ -61,7 +61,8 @@ export class QQMusicSource implements MusicSource {
         const findMatch = async (searchQuery: string): Promise<{ match: MusicInfo | null, candidates: string[] }> => {
             const results = await this.youtubeSource.search(searchQuery, {
                 artist: info.artist,
-                duration: info.duration
+                duration: info.duration,
+                songName: info.name
             });
             const candidates: string[] = [];
 
@@ -91,70 +92,51 @@ export class QQMusicSource implements MusicSource {
         };
 
         try {
-            // Attempt 1: Detailed Query
-            let query = `${info.name} ${info.artist}`;
-            if (info.album && info.album !== info.name) {
-                query += ` ${info.album}`;
-            }
-
-            if (!isLiveRequest) {
-                query += ' 原版';
-            } else {
-                query += ' live audio';
-            }
+            // Attempt 1: Standard Query (Name + Artist)
+            // We rely on our robust scoring system (lines 32-106 in youtube.ts) to filter results,
+            // so we don't need to add specific keywords like "Original" or "Album" which might limit results too much.
+            const query = `${info.name} ${info.artist}`;
+            console.log(`[QQMusicSource] Searching with query: ${query}`);
 
             const attempt1Result = await findMatch(query);
             if (attempt1Result.match) {
                 const viewStr = attempt1Result.match.viewCount ? ` (${this.formatViewCount(attempt1Result.match.viewCount)} views)` : '';
-                console.log(`[QQMusicSource] Found match on attempt 1: ${attempt1Result.match.name}${viewStr}`);
+                console.log(`[QQMusicSource] Found match: ${attempt1Result.match.name}${viewStr}`);
                 attempt1Result.match.filename = `${info.name} - ${info.artist}`;
                 return await this.youtubeSource.getDownloadUrl(attempt1Result.match);
             }
 
-            console.warn(`[QQMusicSource] No strict match for detailed query. Candidates: ${JSON.stringify(attempt1Result.candidates)}`);
+            console.warn(`[QQMusicSource] No match for standard query. Candidates: ${JSON.stringify(attempt1Result.candidates)}`);
 
-            // Attempt 2: Simplified Query (Name + Artist only)
-            const simpleQuery = `${info.name} ${info.artist}`;
-            console.log(`[QQMusicSource] Retrying with simplified query: ${simpleQuery}`);
-
-            const attempt2Result = await findMatch(simpleQuery);
-            if (attempt2Result.match) {
-                const viewStr = attempt2Result.match.viewCount ? ` (${this.formatViewCount(attempt2Result.match.viewCount)} views)` : '';
-                console.log(`[QQMusicSource] Found match on attempt 2: ${attempt2Result.match.name}${viewStr}`);
-                attempt2Result.match.filename = `${info.name} - ${info.artist}`;
-                return await this.youtubeSource.getDownloadUrl(attempt2Result.match);
-            }
-
-            console.warn(`[QQMusicSource] No strict match for simplified query. Candidates: ${JSON.stringify(attempt2Result.candidates)}`);
-
-            // Attempt 3: Traditional Chinese Query (Cantonese/TC support)
+            // Attempt 2: Traditional Chinese Query (Cantonese/TC support)
             // Convert Name and Artist to Traditional Chinese (Hong Kong standard)
             const traditionalName = converter(info.name);
             const traditionalArtist = converter(info.artist);
 
-            // Only try if there's a difference (otherwise it's same as Attempt 2)
+            // Only try if there's a difference
             if (traditionalName !== info.name || traditionalArtist !== info.artist) {
                 const traditionalQuery = `${traditionalName} ${traditionalArtist}`;
                 console.log(`[QQMusicSource] Retrying with Traditional Chinese query: ${traditionalQuery}`);
 
-                const attempt3Result = await findMatch(traditionalQuery);
-                if (attempt3Result.match) {
-                    const viewStr = attempt3Result.match.viewCount ? ` (${this.formatViewCount(attempt3Result.match.viewCount)} views)` : '';
-                    console.log(`[QQMusicSource] Found match on attempt 3 (Traditional): ${attempt3Result.match.name}${viewStr}`);
-                    attempt3Result.match.filename = `${info.name} - ${info.artist}`;
-                    return await this.youtubeSource.getDownloadUrl(attempt3Result.match);
+                const attempt2Result = await findMatch(traditionalQuery);
+                if (attempt2Result.match) {
+                    const viewStr = attempt2Result.match.viewCount ? ` (${this.formatViewCount(attempt2Result.match.viewCount)} views)` : '';
+                    console.log(`[QQMusicSource] Found match (Traditional): ${attempt2Result.match.name}${viewStr}`);
+                    attempt2Result.match.filename = `${info.name} - ${info.artist}`;
+                    return await this.youtubeSource.getDownloadUrl(attempt2Result.match);
                 }
             }
 
-            // Attempt 4: Just the name
+            // Attempt 3: Just the name
+            // Fallback for when artist name might be transliterated differently or missing in video title
             const nameQuery = `${info.name}`;
             console.log(`[QQMusicSource] Retrying with name-only query: ${nameQuery}`);
-            const attempt4Result = await findMatch(nameQuery);
-            if (attempt4Result.match) {
-                const viewStr = attempt4Result.match.viewCount ? ` (${this.formatViewCount(attempt4Result.match.viewCount)} views)` : '';
-                console.log(`[QQMusicSource] Found match on attempt 4: ${attempt4Result.match.name}${viewStr}`);
-                attempt4Result.match.filename = `${info.name} - ${info.artist}`;
-                return await this.youtubeSource.getDownloadUrl(attempt4Result.match);
+            const attempt3Result = await findMatch(nameQuery);
+            if (attempt3Result.match) {
+                const viewStr = attempt3Result.match.viewCount ? ` (${this.formatViewCount(attempt3Result.match.viewCount)} views)` : '';
+                console.log(`[QQMusicSource] Found match (Name Only): ${attempt3Result.match.name}${viewStr}`);
+                attempt3Result.match.filename = `${info.name} - ${info.artist}`;
+                return await this.youtubeSource.getDownloadUrl(attempt3Result.match);
             }
 
             throw new Error(`No video title matched song name "${info.name}" in YouTube results after retries.`);
