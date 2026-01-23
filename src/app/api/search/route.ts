@@ -10,8 +10,11 @@ export async function GET(request: Request) {
     }
 
     try {
-        console.log(`Searching for: ${q}`);
+        console.log('==================================================');
+        console.log(`[Song Search] Query: ${q}`);
         const results = await downloadManager.search(q);
+        console.log(`[Song Search] Found ${results.length} results`);
+        console.log('==================================================');
         return NextResponse.json({ results });
     } catch (e) {
         console.error('Search failed:', e);

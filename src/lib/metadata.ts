@@ -93,7 +93,7 @@ export async function embedMetadata(
 
         // Add Lyrics
         if (metadata.lyrics) {
-            console.log(`[embedMetadata] Embedding lyrics (${metadata.lyrics.length} chars) into: ${metadata.title}`);
+            // console.log(`[embedMetadata] Embedding lyrics (${metadata.lyrics.length} chars) into: ${metadata.title}`);
             tags.unsynchronisedLyrics = {
                 language: 'eng',
                 text: metadata.lyrics
@@ -105,7 +105,7 @@ export async function embedMetadata(
 
         if (taggedBuffer) {
             fs.writeFileSync(outputPath, taggedBuffer);
-            console.log(`[embedMetadata] Successfully embedded metadata for: ${metadata.title}`);
+            console.log(`[embedMetadata] Successfully embedded metadata for: ${metadata.title} (Lyrics: ${metadata.lyrics?.length || 0} chars)`);
         } else {
             console.warn('[embedMetadata] Failed to write tags (NodeID3 returned false)');
         }

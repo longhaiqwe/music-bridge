@@ -83,7 +83,7 @@ export class QQMusicSource implements MusicSource {
                 const nameMatch = resNameNorm.includes(infoNameNorm) || resNameNorm.includes(infoNameTradNorm);
 
                 if (nameMatch) {
-                    console.log(`[QQMusicSource] Selected match: ${res.name}`);
+                    // console.log(`[QQMusicSource] Selected match: ${res.name}`);
                     return { match: res, candidates };
                 }
             }
@@ -96,7 +96,7 @@ export class QQMusicSource implements MusicSource {
             // We rely on our robust scoring system (lines 32-106 in youtube.ts) to filter results,
             // so we don't need to add specific keywords like "Original" or "Album" which might limit results too much.
             const query = `${info.name} ${info.artist}`;
-            console.log(`[QQMusicSource] Searching with query: ${query}`);
+            // console.log(`[QQMusicSource] Searching with query: ${query}`);
 
             const attempt1Result = await findMatch(query);
             if (attempt1Result.match) {

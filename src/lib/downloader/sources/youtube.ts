@@ -192,7 +192,7 @@ export class YoutubeSource implements MusicSource {
                 // Log top 3 for debugging
                 console.log('[YoutubeSource] Top 3 results:', results.slice(0, 3).map(r =>
                     // @ts-ignore
-                    `${r.name} (${r._debugScore}) [${r.duration}s]`
+                    `${(r.name.length > 30 ? r.name.substring(0, 30) + '...' : r.name)} (${Math.round(r._debugScore)}) [${r.duration}s]`
                 ));
 
                 return results;

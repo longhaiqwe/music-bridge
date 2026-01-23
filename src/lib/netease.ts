@@ -127,7 +127,8 @@ export class NeteaseService {
         }) as any;
         return res.body;
       } catch (e: any) {
-        console.error(`Upload failed (attempt ${i + 1}/${MAX_RETRIES}):`, e.message || e);
+        const errMsg = (e && typeof e === 'object' && e.message) ? e.message : String(e);
+        console.error(`Upload failed (attempt ${i + 1}/${MAX_RETRIES}):`, errMsg);
         lastError = e;
 
         // If it's not a network/server error (e.g. 4xx), maybe don't retry? 
