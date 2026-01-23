@@ -24,7 +24,7 @@ if (!fs.existsSync(TMP_DIR)) {
 
 export async function POST(request: Request) {
     const body = await request.json();
-    const { artistId, count = 10, artistName, songs } = body;
+    const { artistId, count = 10, artistName, songs, createPlaylist = true } = body;
 
     const encoder = new TextEncoder();
 
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
                 controller.enqueue(encoder.encode(summaryEvent));
 
                 // 3. Create Playlist
-                if (cloudIds.length > 0) {
+                if (createPlaylist && cloudIds.length > 0) {
                     try {
                         log(`Creating playlist: ${artistName}...`);
                         const playlist = await neteaseService.createPlaylist(artistName);
@@ -304,6 +304,8 @@ export async function POST(request: Request) {
                             log('Tip: NetEase API returned "Too Frequent". Try manually creating a playlist later.');
                         }
                     }
+                } else if (!createPlaylist && cloudIds.length > 0) {
+                    log('Skipping playlist creation as requested.');
                 } else {
                     log('No songs uploaded, skipping playlist creation.');
                 }

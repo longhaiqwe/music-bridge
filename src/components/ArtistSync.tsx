@@ -23,6 +23,7 @@ export function ArtistSync() {
     const [progress, setProgress] = useState({ current: 0, total: 10 });
     const [currentSong, setCurrentSong] = useState('');
     const [statusMessage, setStatusMessage] = useState('初始化中...');
+    const [createPlaylist, setCreatePlaylist] = useState(true);
 
     // Cache all songs to support removal/replenishment
     const [allCachedSongs, setAllCachedSongs] = useState<any[]>([]);
@@ -163,7 +164,8 @@ export function ArtistSync() {
                     artistId: selectedArtist.id,
                     artistName: selectedArtist.name,
                     count: Number(syncCount),
-                    songs: toSyncSongs // Pass selected songs
+                    songs: toSyncSongs, // Pass selected songs
+                    createPlaylist // Pass user preference
                 })
             });
 
@@ -317,6 +319,20 @@ export function ArtistSync() {
                                         </button>
                                     </div>
                                 )}
+
+                                <div className="flex items-center gap-2 mr-2">
+                                    <input
+                                        type="checkbox"
+                                        id="createPlaylist"
+                                        checked={createPlaylist}
+                                        onChange={(e) => setCreatePlaylist(e.target.checked)}
+                                        className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="createPlaylist" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                                        创建歌单
+                                        <span className="text-xs text-gray-400 block font-normal">如失败请取消勾选</span>
+                                    </label>
+                                </div>
 
                                 <button
                                     onClick={handleStartSync}
