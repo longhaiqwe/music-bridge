@@ -3,9 +3,9 @@ import { MusicInfo } from './downloader/types';
 // 从 LocalStorage 获取网易云 Cookie
 export const getNeteaseCookie = () => {
     if (typeof window !== 'undefined') {
-        return localStorage.getItem('netease_cookie');
+        return localStorage.getItem('netease_cookie') || '';
     }
-    return null;
+    return '';
 };
 
 // 封装 fetch，自动添加 Cookie 请求头

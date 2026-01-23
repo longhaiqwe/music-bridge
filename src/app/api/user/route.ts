@@ -3,7 +3,7 @@ import { neteaseService } from '@/lib/netease';
 
 export async function GET(request: Request) {
     try {
-        const cookie = request.headers.get('x-netease-cookie') || undefined;
+        const cookie = request.headers.get('x-netease-cookie') || '';
         const user = await neteaseService.getUserInfo(cookie);
         if (user) {
             return NextResponse.json(user);

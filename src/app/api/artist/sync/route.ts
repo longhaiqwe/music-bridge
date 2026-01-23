@@ -22,7 +22,7 @@ export async function POST(request: Request) {
             };
 
             try {
-                const cookie = request.headers.get('x-netease-cookie') || undefined;
+                const cookie = request.headers.get('x-netease-cookie') || '';
                 log(`Starting sync for ${artistName}...`);
 
                 // 1. Get Songs
