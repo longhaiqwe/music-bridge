@@ -81,18 +81,19 @@ export class YoutubeSource implements MusicSource {
                 score += 40;
             }
         }
-        // Known official channels (could be expanded)
-        if (/JVR Music|周杰倫/i.test(video.artist)) score += 20;
+        // Known official channels (could be expanded in the future via config)
+        // Removed specific check for JVR/Zhou Jie Lun to keep logic generic
 
         // 3. Duration Match
         if (duration > 0 && video.duration > 0) {
             const diff = Math.abs(video.duration - duration);
-            if (diff < 5) score += 30;
-            else if (diff < 20) score += 10;
-            else if (diff > 60) {
-                // If it claims to be certain things, we might forgive it?
-                // But generally > 1 min diff is bad.
+            if (diff < 5) score += 100; // Strong priority for exact duration match
+            else if (diff < 10) score += 50;
+            else if (diff > 30) {
+                // Penalize significant duration mismatch
                 score -= 50;
+            } else if (diff > 60) {
+                score -= 100;
             }
         }
 

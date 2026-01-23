@@ -69,30 +69,92 @@ export async function POST(request: Request) {
                     try {
                         log(`[${i + 1}/${targetSongs.length}] Processing: ${song.name}`);
 
-                        // Search source
-                        const searchResults = await downloadManager.search(query);
-                        if (!searchResults || searchResults.length === 0) {
+                        // STRATEGY: Prioritize Lyric Length (Duration) from QQ Music
+                        // 1. Fetch Lyrics/Info first to get authoritative Duration
+                        let downloadInfo = null;
+                        let lyrics = ''; // Store lyrics here
+
+                        try {
+                            log(`[Strategy] Pre-fetching lyrics/info from QQ Music...`);
+                            const qqSongs = await qqMusicService.search(query);
+
+                            // Find the best match that HAS lyrics and is preferably NOT live
+                            // Helper to check live
+                            const isLive = (name: string) => /live|concert|现场|演唱会/i.test(name);
+                            let robustCandidate = null;
+
+                            for (const qs of qqSongs) {
+                                // Skip if live (unless we have no other choice, handled by robustCandidate)
+                                if (isLive(qs.name)) {
+                                    if (!robustCandidate) robustCandidate = qs;
+                                    continue;
+                                }
+
+                                // Check Lyrics
+                                const lrc = await qqMusicService.getLyric(qs.id);
+                                if (lrc && lrc.length > 200) {
+                                    lyrics = lrc;
+                                    // Map to MusicInfo
+                                    downloadInfo = {
+                                        id: String(qs.id),
+                                        name: qs.name,
+                                        artist: qs.ar.map((a: any) => a.name).join('/'),
+                                        album: qs.al.name,
+                                        duration: qs.dt / 1000,
+                                        coverUrl: qs.al.picUrl,
+                                        source: 'qq',
+                                        originalId: String(qs.id)
+                                    };
+                                    log(`[Strategy] Locked target via lyrics: ${qs.name} (${downloadInfo.duration}s)`);
+                                    break;
+                                }
+                            }
+
+                            // If no perfect match, use robust candidate if it has lyrics
+                            if (!downloadInfo && robustCandidate) {
+                                const qs = robustCandidate as any;
+                                const lrc = await qqMusicService.getLyric(qs.id);
+                                if (lrc && lrc.length > 200) {
+                                    lyrics = lrc;
+                                    downloadInfo = {
+                                        id: String(qs.id),
+                                        name: qs.name,
+                                        artist: qs.ar.map((a: any) => a.name).join('/'),
+                                        album: qs.al.name,
+                                        duration: qs.dt / 1000,
+                                        coverUrl: qs.al.picUrl,
+                                        source: 'qq',
+                                        originalId: String(qs.id)
+                                    };
+                                    log(`[Strategy] Using fallback target via lyrics: ${qs.name} (${downloadInfo.duration}s)`);
+                                }
+                            }
+
+                        } catch (e: any) {
+                            console.warn(`[Strategy] QQ Pre-fetch failed: ${e.message}`);
+                        }
+
+                        // 2. Fallback: If no lyrics-validated match, use standard search
+                        if (!downloadInfo) {
+                            log(`[Strategy] No lyrics-guided match. Using standard search.`);
+                            const searchResults = await downloadManager.search(query);
+                            if (searchResults && searchResults.length > 0) {
+                                // Filter live if possible
+                                const nonLiveMatches = searchResults.filter(res => !/live|concert|现场|演唱会/i.test(res.name));
+                                downloadInfo = nonLiveMatches.length > 0 ? nonLiveMatches[0] : searchResults[0];
+                                log(`[Strategy] Standard search picked: ${downloadInfo.name}`);
+                            }
+                        }
+
+                        if (!downloadInfo) {
                             log(`No results found for ${song.name}`);
                             results.failed++;
                             results.failedSongs.push(`${song.name} (No results)`);
                             continue;
                         }
 
-                        // Pick best match (Strategy: Avoid Live/Concert if possible)
-                        let bestMatch = searchResults[0];
-
-                        // Filter out live versions
-                        const nonLiveMatches = searchResults.filter(res => !/live|concert|现场|演唱会/i.test(res.name) && !/live|concert|现场|演唱会/i.test(res.album));
-
-                        if (nonLiveMatches.length > 0) {
-                            bestMatch = nonLiveMatches[0];
-                            log(`[Selection] Picked non-live version: ${bestMatch.name} (from ${nonLiveMatches.length} candidates)`);
-                        } else {
-                            log(`[Selection] Only found potential live versions, using top result: ${bestMatch.name}`);
-                        }
-
-                        // Get download URL
-                        const downloadUrl = await downloadManager.getDownloadUrl(bestMatch);
+                        // 3. Download (This triggers YouTube search with the duration from downloadInfo)
+                        const downloadUrl = await downloadManager.getDownloadUrl(downloadInfo);
                         if (!downloadUrl) {
                             log(`Could not get download URL for ${song.name}`);
                             results.failed++;
@@ -135,29 +197,11 @@ export async function POST(request: Request) {
                         const albumName = albumObj.name || '';
                         const coverUrl = albumObj.picUrl;
 
-                        // Fetch Lyrics (Strategy: QQ Music First -> NetEase Fallback)
-                        let lyrics = '';
+                        // Fetch Lyrics (Fallback only if Step 1 failed)
                         const MIN_LYRICS_LENGTH = 200;
 
-                        try {
-                            // Attempt 1: QQ Music (Prioritized)
-                            log(`[Lyrics] Fetching from QQ Music (Priority)...`);
-                            const qqSongs = await qqMusicService.search(`${song.name} ${artistName}`);
-                            if (qqSongs.length > 0) {
-                                const bestQQMatch = qqSongs[0];
-                                lyrics = await qqMusicService.getLyric(bestQQMatch.id);
-                                if (lyrics && lyrics.length >= MIN_LYRICS_LENGTH) {
-                                    log(`[Lyrics] Found lyrics on QQ Music (${lyrics.length} chars)`);
-                                } else {
-                                    console.log(`[Lyrics] QQ Music lyrics invalid/short (${lyrics?.length || 0} chars).`);
-                                    lyrics = ''; // Reset if invalid
-                                }
-                            } else {
-                                console.log(`[Lyrics] No match on QQ Music.`);
-                            }
-
-                            // Attempt 2: NetEase Fallback (if QQ failed)
-                            if (!lyrics) {
+                        if (!lyrics) {
+                            try {
                                 log(`[Lyrics] Trying NetEase fallback...`);
                                 const searchRes = await neteaseService.searchSong(`${song.name} ${artistName}`);
                                 if (searchRes && searchRes.length > 0) {
@@ -184,9 +228,9 @@ export async function POST(request: Request) {
                                         }
                                     }
                                 }
+                            } catch (e: any) {
+                                console.warn(`[Lyrics] Error fetching lyrics:`, e.message);
                             }
-                        } catch (e: any) {
-                            console.warn(`[Lyrics] Error fetching lyrics:`, e.message);
                         }
 
 
