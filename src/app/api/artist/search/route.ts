@@ -12,7 +12,8 @@ export async function GET(request: Request) {
     try {
         console.log('==================================================');
         console.log(`[Artist Search] Query: ${q}`);
-        const artists = await neteaseService.searchArtist(q);
+        const cookie = request.headers.get('x-netease-cookie') || undefined;
+        const artists = await neteaseService.searchArtist(q, cookie);
         console.log(`[Artist Search] Found ${artists.length} artists`);
         console.log('==================================================');
         return NextResponse.json(artists);

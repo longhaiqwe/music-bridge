@@ -45,6 +45,10 @@ export function LoginPanel({ onLoginSuccess }: { onLoginSuccess: () => void }) {
                 setStatus('已扫码，请在手机上确认登录');
             } else if (res.code === 803) {
                 setStatus('登录成功！');
+                if (res.cookie) {
+                    localStorage.setItem('netease_cookie', res.cookie);
+                    console.log('[LoginPanel] Cookie saved to localStorage');
+                }
                 setIsLogged(true);
                 onLoginSuccess();
             }

@@ -5,6 +5,7 @@ import { LoginPanel } from '@/components/LoginPanel';
 import { MusicSearch } from '@/components/MusicSearch';
 import { ArtistSync } from '@/components/ArtistSync';
 import { CloudLightning } from 'lucide-react';
+import { fetch as customFetch } from '@/lib/api';
 
 export default function Home() {
   const [isLogged, setIsLogged] = useState(false);
@@ -13,7 +14,7 @@ export default function Home() {
 
   useEffect(() => {
     // Check if we already have a session
-    fetch('/api/user')
+    customFetch('/api/user')
       .then((res) => {
         if (res.ok) {
           setIsLogged(true);

@@ -12,7 +12,8 @@ export async function GET(request: Request) {
 
     try {
         // 1. Get Artist Detail to know the name
-        const artist = await neteaseService.getArtistDetail(id);
+        const cookie = request.headers.get('x-netease-cookie') || undefined;
+        const artist = await neteaseService.getArtistDetail(id, cookie);
         const artistName = artist.name;
 
         if (!artistName) {

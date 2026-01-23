@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { neteaseService } from '@/lib/netease';
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
-        const user = await neteaseService.getUserInfo();
+        const cookie = request.headers.get('x-netease-cookie') || undefined;
+        const user = await neteaseService.getUserInfo(cookie);
         if (user) {
             return NextResponse.json(user);
         } else {

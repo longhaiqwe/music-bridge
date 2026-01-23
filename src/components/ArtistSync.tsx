@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Loader2, Music, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft, X } from 'lucide-react';
+import { fetch as customFetch } from '@/lib/api';
 
 interface Artist {
     id: number;
@@ -42,7 +43,7 @@ export function ArtistSync() {
         setAllCachedSongs([]);
         setIgnoredSongIds(new Set());
         try {
-            const res = await fetch(`/api/artist/search?q=${encodeURIComponent(keyword)}`);
+            const res = await customFetch(`/api/artist/search?q=${encodeURIComponent(keyword)}`);
             const data = await res.json();
             if (Array.isArray(data) && data.length > 0) {
                 setArtists(data);
@@ -70,7 +71,7 @@ export function ArtistSync() {
         const fetchSongs = async () => {
             setLoadingPreview(true);
             try {
-                const res = await fetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
+                const res = await customFetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
                 const data = await res.json();
                 if (Array.isArray(data)) {
                     setAllCachedSongs(data);
@@ -157,7 +158,7 @@ export function ArtistSync() {
         setCurrentSong('');
 
         try {
-            const res = await fetch('/api/artist/sync', {
+            const res = await customFetch('/api/artist/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

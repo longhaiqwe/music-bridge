@@ -11,9 +11,10 @@ export async function POST(request: Request) {
         }
 
         // Use the shared sync service
-        // We pass console.log to output logs to the server console as before
+        const cookie = request.headers.get('x-netease-cookie') || undefined;
         const result = await processSongSync(info, {
-            onLog: (msg) => console.log(msg)
+            onLog: (msg) => console.log(msg),
+            neteaseCookie: cookie
         });
 
         return NextResponse.json({ success: true, uploadResult: result });

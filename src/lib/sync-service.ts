@@ -14,6 +14,7 @@ export type Logger = (msg: string) => void;
 interface SyncOptions {
     onLog?: Logger;
     skipUpload?: boolean; // For testing or local-only mode
+    neteaseCookie?: string; // 客户端传入的网易云 Cookie
 }
 
 // Helper to download file
@@ -35,6 +36,7 @@ export async function processSongSync(
     options: SyncOptions = {}
 ): Promise<any> {
     const log = options.onLog || console.log;
+    const neteaseCookie = options.neteaseCookie;
     let downloadInfo: MusicInfo = { ...baseInfo };
     let lyrics = '';
     let rawFilePath = '';
@@ -190,19 +192,19 @@ export async function processSongSync(
                 log(`[Lyrics] Searching NetEase fallback...`);
                 // Use explicit song name + artist for search
                 const searchQ = `${baseInfo.name} ${baseInfo.artist}`;
-                const searchRes = await neteaseService.searchSong(searchQ);
+                const searchRes = await neteaseService.searchSong(searchQ, neteaseCookie);
 
                 if (searchRes && searchRes.length > 0) {
                     const bestMatch = searchRes[0];
-                    lyrics = await neteaseService.getLyric(bestMatch.id);
+                    lyrics = await neteaseService.getLyric(bestMatch.id, neteaseCookie);
 
                     if (lyrics && lyrics.length < 200) {
                         log(`[Lyrics] NetEase lyrics short (${lyrics.length}), retrying 'Original'...`);
                         const retryQueries = [`${searchQ} 原版`, `${searchQ} 官方`];
                         for (const q of retryQueries) {
-                            const retryRes = await neteaseService.searchSong(q);
+                            const retryRes = await neteaseService.searchSong(q, neteaseCookie);
                             if (retryRes?.[0]) {
-                                const l = await neteaseService.getLyric(retryRes[0].id);
+                                const l = await neteaseService.getLyric(retryRes[0].id, neteaseCookie);
                                 if (l && l.length > lyrics.length) {
                                     lyrics = l;
                                     log(`[Lyrics] Found better lyrics (${l.length} chars)`);
@@ -241,7 +243,7 @@ export async function processSongSync(
         }
 
         log('Uploading to Netease Cloud Disk...');
-        const uploadResult = await neteaseService.uploadToCloudDisk(finalFilePath);
+        const uploadResult = await neteaseService.uploadToCloudDisk(finalFilePath, neteaseCookie);
 
         let songId = null;
         if (uploadResult?.privateCloud?.songId) {

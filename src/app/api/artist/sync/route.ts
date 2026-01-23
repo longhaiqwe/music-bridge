@@ -22,6 +22,7 @@ export async function POST(request: Request) {
             };
 
             try {
+                const cookie = request.headers.get('x-netease-cookie') || undefined;
                 log(`Starting sync for ${artistName}...`);
 
                 // 1. Get Songs
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
                     targetSongs = songs;
                 } else {
                     log('Fetching top songs from Netease...');
-                    const topSongs = await neteaseService.getArtistTopSongs(artistId);
+                    const topSongs = await neteaseService.getArtistTopSongs(artistId, cookie);
                     targetSongs = topSongs.slice(0, count);
                     log(`Found ${topSongs.length} songs, syncing top ${targetSongs.length}`);
                 }
@@ -75,7 +76,8 @@ export async function POST(request: Request) {
                         };
 
                         const uploadRes = await processSongSync(baseInfo, {
-                            onLog: (msg) => log(msg)
+                            onLog: (msg) => log(msg),
+                            neteaseCookie: cookie
                         });
 
                         // Logic for ID extraction (unchanged from service return)
@@ -125,7 +127,7 @@ export async function POST(request: Request) {
                 if (createPlaylist && cloudIds.length > 0) {
                     try {
                         log(`Creating playlist: ${artistName}...`);
-                        const playlist = await neteaseService.createPlaylist(artistName);
+                        const playlist = await neteaseService.createPlaylist(artistName, cookie);
 
                         if (playlist && playlist.id) {
                             log(`Adding ${cloudIds.length} songs to playlist(ID: ${playlist.id})...`);
@@ -136,7 +138,7 @@ export async function POST(request: Request) {
                             const reversedCloudIds = [...uniqueCloudIds].reverse();
 
                             log(`Adding ${reversedCloudIds.length} unique songs to playlist(ID: ${playlist.id})...`);
-                            const added = await neteaseService.addSongsToPlaylist(playlist.id, reversedCloudIds);
+                            const added = await neteaseService.addSongsToPlaylist(playlist.id, reversedCloudIds, cookie);
                             if (added) {
                                 log('Playlist updated successfully!');
                             } else {

@@ -11,6 +11,7 @@ export async function GET(request: Request) {
 
     try {
         const res = await neteaseService.loginQrCodeCheck(key);
+        // 如果登录成功，neteaseService 已经在 res 中包含了 cookie
         return NextResponse.json(res);
     } catch (e) {
         console.error('Auth check failed:', e);
