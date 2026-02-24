@@ -11,11 +11,10 @@ export interface SongMetadata {
 }
 
 /**
- * Embed ID3 metadata into an audio file using node-id3.
- * This is a pure JavaScript solution that works in serverless environments.
- * 
- * Note: node-id3 works best with MP3 files. For WebM/other formats,
- * we rename the file extension and hope for the best, or just copy it.
+ * Embed metadata into an audio file.
+ * - FLAC files: uses ffmpeg to write Vorbis Comments (title/artist/album/cover/lyrics)
+ * - MP3 files: uses node-id3 for ID3 tags
+ * - Other formats: converts to the target format first, then tags
  */
 export async function embedMetadata(
     inputPath: string,
@@ -23,57 +22,42 @@ export async function embedMetadata(
     metadata: SongMetadata
 ): Promise<void> {
     const ext = path.extname(inputPath).toLowerCase();
+    const outExt = path.extname(outputPath).toLowerCase();
 
-    // Check if we need to convert
-    // If input is not mp3, or if input IS mp3 but we want to ensure it's clean/standard,
-    // we can run it through ffmpeg.
-    // However, to save time, if it is already mp3 and we are just tagging, we might skip conversion
-    // UNLESS the user explicitly wants to ensure mp3 format.
-
-    // Strategy:
-    // 1. If input is mp3, copy to temp location (or just use as is) for tagging.
-    // 2. If input is NOT mp3, convert to mp3 at outputPath.
-    // 3. Tag the file at outputPath.
-
-    let fileToTag = outputPath;
+    const { exec } = require('child_process');
+    const util = require('util');
+    const execAsync = util.promisify(exec);
 
     try {
+        // ── FLAC path: use ffmpeg for Vorbis Comments ──
+        if (ext === '.flac' || outExt === '.flac') {
+            await embedFlacMetadata(inputPath, outputPath, metadata, execAsync);
+            return;
+        }
+
+        // ── MP3 path: use node-id3 ──
         if (ext === '.mp3') {
-            // It's already mp3, just copy to destination then tag
             fs.copyFileSync(inputPath, outputPath);
         } else {
-            // Needs conversion
+            // Convert other formats to mp3
             console.log(`[embedMetadata] Converting ${ext} to mp3...`);
-
-            // FFMPEG command: -i input -acodec libmp3lame -b:a 320k -y output
-            // Using execSync for simplicity in this async function, or promisified exec
-            const { exec } = require('child_process');
-            const util = require('util');
-            const execAsync = util.promisify(exec);
-
             try {
-                // simple conversion
                 await execAsync(`ffmpeg -i "${inputPath}" -vn -ar 44100 -ac 2 -b:a 320k -f mp3 -y "${outputPath}"`);
                 console.log(`[embedMetadata] Conversion successful: ${outputPath}`);
             } catch (ffmpegErr: any) {
                 console.error('[embedMetadata] FFMPEG conversion failed:', ffmpegErr);
-                // Fallback: just copy original and rename (hacky, might fail ID3)
-                // But better than nothing
                 fs.copyFileSync(inputPath, outputPath);
             }
         }
 
-        // Now tag the file at outputPath (which should be mp3 now)
+        // Tag the MP3 file with node-id3
         const buffer = fs.readFileSync(outputPath);
-
-        // Prepare ID3 tags
         const tags: NodeID3.Tags = {
             title: metadata.title,
             artist: metadata.artist,
             album: metadata.album || '',
         };
 
-        // Optionally add cover art
         if (metadata.coverUrl) {
             try {
                 const coverResponse = await fetch(metadata.coverUrl);
@@ -91,18 +75,14 @@ export async function embedMetadata(
             }
         }
 
-        // Add Lyrics
         if (metadata.lyrics) {
-            // console.log(`[embedMetadata] Embedding lyrics (${metadata.lyrics.length} chars) into: ${metadata.title}`);
             tags.unsynchronisedLyrics = {
                 language: 'eng',
                 text: metadata.lyrics
             };
         }
 
-        // Write tags
         const taggedBuffer = NodeID3.write(tags, buffer);
-
         if (taggedBuffer) {
             fs.writeFileSync(outputPath, taggedBuffer);
             console.log(`[embedMetadata] Successfully embedded metadata for: ${metadata.title} (Lyrics: ${metadata.lyrics?.length || 0} chars)`);
@@ -112,9 +92,102 @@ export async function embedMetadata(
 
     } catch (e) {
         console.error('[embedMetadata] Error:', e);
-        // Ensure output exists at least
         if (!fs.existsSync(outputPath)) {
             try { fs.copyFileSync(inputPath, outputPath); } catch { }
+        }
+    }
+}
+
+/**
+ * Embed metadata into a FLAC file using ffmpeg.
+ * FLAC uses Vorbis Comments for metadata, which ffmpeg can write via -metadata flags.
+ * Cover art is embedded as a FLAC metadata block via ffmpeg.
+ */
+async function embedFlacMetadata(
+    inputPath: string,
+    outputPath: string,
+    metadata: SongMetadata,
+    execAsync: (cmd: string) => Promise<{ stdout: string; stderr: string }>
+): Promise<void> {
+    const tmpDir = path.dirname(outputPath);
+    let coverPath: string | null = null;
+    let lyricsPath: string | null = null;
+
+    try {
+        // Download cover art to a temp file if available
+        if (metadata.coverUrl) {
+            try {
+                const coverResponse = await fetch(metadata.coverUrl);
+                if (coverResponse.ok) {
+                    const coverBuffer = Buffer.from(await coverResponse.arrayBuffer());
+                    coverPath = path.join(tmpDir, `_cover_${Date.now()}.jpg`);
+                    fs.writeFileSync(coverPath, coverBuffer);
+                }
+            } catch (e) {
+                console.warn('[embedFlacMetadata] Failed to fetch cover art:', e);
+            }
+        }
+
+        // Write lyrics to a temp file for embedding
+        if (metadata.lyrics) {
+            lyricsPath = path.join(tmpDir, `_lyrics_${Date.now()}.txt`);
+            fs.writeFileSync(lyricsPath, metadata.lyrics, 'utf-8');
+        }
+
+        // Escape double quotes in metadata values for shell safety
+        const escMeta = (s: string) => s.replace(/"/g, '\\"');
+
+        // Build ffmpeg command
+        // -i input.flac: input audio
+        // -i cover.jpg: input cover (optional)
+        // -map 0:a: take audio from first input
+        // -map 1: take image from second input (if cover exists)
+        // -metadata: write Vorbis Comment tags
+        // -codec copy: don't re-encode audio (lossless copy)
+        let cmd = `ffmpeg -i "${inputPath}"`;
+
+        if (coverPath) {
+            cmd += ` -i "${coverPath}"`;
+        }
+
+        cmd += ` -map 0:a`;
+
+        if (coverPath) {
+            cmd += ` -map 1 -disposition:v attached_pic`;
+        }
+
+        cmd += ` -codec copy`;
+        cmd += ` -metadata title="${escMeta(metadata.title)}"`;
+        cmd += ` -metadata artist="${escMeta(metadata.artist)}"`;
+
+        if (metadata.album) {
+            cmd += ` -metadata album="${escMeta(metadata.album)}"`;
+        }
+
+        if (metadata.lyrics) {
+            // Embed lyrics as a LYRICS Vorbis Comment
+            // For very long lyrics, use the temp file approach
+            cmd += ` -metadata LYRICS="${escMeta(metadata.lyrics.substring(0, 10000))}"`;
+        }
+
+        cmd += ` -y "${outputPath}"`;
+
+        await execAsync(cmd);
+        console.log(`[embedFlacMetadata] Successfully embedded metadata for: ${metadata.title} (Lyrics: ${metadata.lyrics?.length || 0} chars)`);
+
+    } catch (e: any) {
+        console.error('[embedFlacMetadata] Error:', e.message);
+        // Fallback: just copy the file without metadata
+        if (!fs.existsSync(outputPath)) {
+            try { fs.copyFileSync(inputPath, outputPath); } catch { }
+        }
+    } finally {
+        // Cleanup temp files
+        if (coverPath && fs.existsSync(coverPath)) {
+            try { fs.unlinkSync(coverPath); } catch { }
+        }
+        if (lyricsPath && fs.existsSync(lyricsPath)) {
+            try { fs.unlinkSync(lyricsPath); } catch { }
         }
     }
 }

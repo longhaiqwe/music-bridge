@@ -163,7 +163,7 @@ export async function processSongSync(
         // DownloadManager returns a LOCAL file path for YouTube/QQ sources.
         // But for consistency with legacy artist sync code that handled URLs, we support both.
 
-        let ext = path.extname(downloadUrl).replace('.', '') || 'mp3';
+        let ext = path.extname(downloadUrl).replace('.', '') || 'flac';
 
         if (fs.existsSync(downloadUrl)) {
             // It's a local file
@@ -179,9 +179,9 @@ export async function processSongSync(
         } else {
             // It's a URL (unlikely given current DownloadManager, but safe to keep)
             log(`Downloading from remote URL: ${downloadUrl}`);
-            rawFilePath = path.join(TMP_DIR, `raw_${Date.now()}.mp3`);
+            rawFilePath = path.join(TMP_DIR, `raw_${Date.now()}.flac`);
             await downloadFile(downloadUrl, rawFilePath);
-            ext = 'mp3';
+            ext = 'flac';
         }
 
         const finalFileName = getSafeFileName(baseInfo.name, ext);

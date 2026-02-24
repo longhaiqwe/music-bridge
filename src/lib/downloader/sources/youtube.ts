@@ -220,8 +220,8 @@ export class YoutubeSource implements MusicSource {
             baseName = `${info.name} - ${info.artist || 'Unknown'}`;
         }
         baseName = baseName || info.id;
-        // We enforce mp3 conversion, so we look for that
-        const targetFilename = getSafeFileName(baseName, 'mp3');
+        // We enforce flac conversion for lossless quality
+        const targetFilename = getSafeFileName(baseName, 'flac');
         const filePath = path.join(TMP_DIR, targetFilename);
 
         // If file exists, return it
@@ -237,12 +237,12 @@ export class YoutubeSource implements MusicSource {
                 console.log(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
 
                 // Construct output template for yt-dlp
-                // We use the safe basename + dynamic extension, though we requested mp3
-                const safeBaseName = path.basename(targetFilename, '.mp3');
+                // We use the safe basename + dynamic extension, though we requested flac
+                const safeBaseName = path.basename(targetFilename, '.flac');
                 const outputTemplate = path.join(TMP_DIR, `${safeBaseName}.%(ext)s`);
 
-                // Construct command
-                let cmd = `yt-dlp -x --audio-format mp3 --audio-quality 0 -o "${outputTemplate}" "https://www.youtube.com/watch?v=${info.originalId}"`;
+                // Construct command - use flac for lossless quality
+                let cmd = `yt-dlp -x --audio-format flac -o "${outputTemplate}" "https://www.youtube.com/watch?v=${info.originalId}"`;
                 if (cookieFile) {
                     cmd += ` --cookies "${cookieFile}"`;
                 }
