@@ -164,7 +164,9 @@ export class NeteaseService {
   }
 
   async getArtistTopSongs(artistId: string | number, cookie?: string): Promise<any[]> {
-    if (!cookie) throw new Error('Not logged in');
+    if (!cookie) {
+      console.warn('[getArtistTopSongs] Not logged in, trying without cookie');
+    }
     try {
       const res = await NeteaseCloudMusicApi.artist_top_song({
         id: artistId,
@@ -178,7 +180,7 @@ export class NeteaseService {
   }
 
   async getArtistDetail(artistId: string | number, cookie?: string): Promise<any> {
-    if (!cookie) throw new Error('Not logged in');
+    if (!cookie) return { name: '' };
     try {
       const res = await NeteaseCloudMusicApi.artist_detail({
         id: artistId,

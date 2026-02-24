@@ -119,21 +119,31 @@ export class YoutubeSource implements MusicSource {
 
     private async withCookies<T>(callback: (cookiePath: string | null) => Promise<T>): Promise<T> {
         let cookieFile: string | null = null;
+        let shouldCleanup = false;
         try {
-            const cookieStr = process.env.YOUTUBE_COOKIES;
-            if (cookieStr) {
-                try {
-                    const cookies = JSON.parse(cookieStr);
-                    cookieFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
-                    const netscapeCookies = this.convertCookiesToNetscape(cookies);
-                    fs.writeFileSync(cookieFile, netscapeCookies);
-                } catch (e) {
-                    console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
+            // Priority 1: Static cookies.txt file in project root
+            const staticCookieFile = path.join(process.cwd(), 'cookies.txt');
+            if (fs.existsSync(staticCookieFile)) {
+                cookieFile = staticCookieFile;
+                // Don't cleanup static file
+            } else {
+                // Priority 2: YOUTUBE_COOKIES environment variable (JSON format)
+                const cookieStr = process.env.YOUTUBE_COOKIES;
+                if (cookieStr) {
+                    try {
+                        const cookies = JSON.parse(cookieStr);
+                        cookieFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
+                        const netscapeCookies = this.convertCookiesToNetscape(cookies);
+                        fs.writeFileSync(cookieFile, netscapeCookies);
+                        shouldCleanup = true;
+                    } catch (e) {
+                        console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
+                    }
                 }
             }
             return await callback(cookieFile);
         } finally {
-            if (cookieFile && fs.existsSync(cookieFile)) {
+            if (shouldCleanup && cookieFile && fs.existsSync(cookieFile)) {
                 try { fs.unlinkSync(cookieFile); } catch { }
             }
         }

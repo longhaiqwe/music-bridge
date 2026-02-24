@@ -1,0 +1,23 @@
+diff --git a/node_modules/qq-music-api/node/index.js b/node_modules/qq-music-api/node/index.js
+index 4d5dd23..15b07e1 100644
+--- a/node_modules/qq-music-api/node/index.js
++++ b/node_modules/qq-music-api/node/index.js
+@@ -67,7 +67,7 @@ class QQMusic {
+       }
+ 
+       try {
+-        routes[baseFunc][`/${func}`]({
++        const p = routes[baseFunc][`/${func}`]({
+           req,
+           res,
+           request: Request(req, res),
+@@ -75,7 +75,8 @@ class QQMusic {
+           globalCookie: {
+             userCookie: () => this.cookie,
+           }
+-        })
++        });
++        if (p && p.catch) p.catch(() => {});
+       } catch (err) {
+         reject(err);
+       }
