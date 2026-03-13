@@ -117,40 +117,48 @@ export class YoutubeSource implements MusicSource {
         return score;
     }
 
-    private async withCookies<T>(callback: (cookiePath: string | null) => Promise<T>): Promise<T> {
-        let cookieFile: string | null = null;
-        let shouldCleanup = false;
-        try {
-            // Priority 1: Static cookies.txt file in project root
-            const staticCookieFile = path.join(process.cwd(), 'cookies.txt');
-            if (fs.existsSync(staticCookieFile)) {
-                cookieFile = staticCookieFile;
-                // Don't cleanup static file
-            } else {
-                // Priority 2: YOUTUBE_COOKIES environment variable (JSON format)
-                const cookieStr = process.env.YOUTUBE_COOKIES;
-                if (cookieStr) {
-                    try {
-                        const cookies = JSON.parse(cookieStr);
-                        cookieFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
-                        const netscapeCookies = this.convertCookiesToNetscape(cookies);
-                        fs.writeFileSync(cookieFile, netscapeCookies);
-                        shouldCleanup = true;
-                    } catch (e) {
-                        console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
-                    }
-                }
-            }
-            return await callback(cookieFile);
-        } finally {
-            if (shouldCleanup && cookieFile && fs.existsSync(cookieFile)) {
-                try { fs.unlinkSync(cookieFile); } catch { }
+    /**
+     * 构建 yt-dlp 的 cookie 参数字符串。
+     * 优先级：
+     *   1. --cookies-from-browser chrome（直接读浏览器，不会过期，默认启用）
+     *   2. cookies.txt 静态文件（设置 YOUTUBE_COOKIES_FROM_BROWSER=false 时启用）
+     *   3. YOUTUBE_COOKIES 环境变量（JSON 格式）
+     */
+    private async buildCookieArgs(): Promise<{ args: string; tempFile: string | null }> {
+        // 默认优先用浏览器 cookies，除非明确禁用
+        const useFromBrowser = process.env.YOUTUBE_COOKIES_FROM_BROWSER !== 'false';
+        if (useFromBrowser) {
+            const browser = process.env.YOUTUBE_COOKIES_BROWSER || 'chrome';
+            console.log(`[YoutubeSource] Using cookies from browser: ${browser}`);
+            return { args: `--cookies-from-browser ${browser}`, tempFile: null };
+        }
+
+        // 回退 1: cookies.txt 静态文件
+        const staticCookieFile = path.join(process.cwd(), 'cookies.txt');
+        if (fs.existsSync(staticCookieFile)) {
+            return { args: `--cookies "${staticCookieFile}"`, tempFile: null };
+        }
+
+        // 回退 2: YOUTUBE_COOKIES 环境变量（JSON 格式）
+        const cookieStr = process.env.YOUTUBE_COOKIES;
+        if (cookieStr) {
+            try {
+                const cookies = JSON.parse(cookieStr);
+                const tempFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
+                const netscapeCookies = this.convertCookiesToNetscape(cookies);
+                fs.writeFileSync(tempFile, netscapeCookies);
+                return { args: `--cookies "${tempFile}"`, tempFile };
+            } catch (e) {
+                console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
             }
         }
+
+        return { args: '', tempFile: null };
     }
 
     async search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]> {
-        return this.withCookies(async (cookieFile) => {
+        const { args: cookieArgs, tempFile } = await this.buildCookieArgs();
+        try {
             try {
                 console.log(`[YoutubeSource] Searching for: ${keyword}`);
                 // Escape quotes to prevent shell issues
@@ -158,8 +166,8 @@ export class YoutubeSource implements MusicSource {
 
                 // Increase limit slightly to give us more candidates to score
                 let command = `yt-dlp --dump-json --no-playlist "ytsearch10:${safeKeyword}"`;
-                if (cookieFile) {
-                    command += ` --cookies "${cookieFile}"`;
+                if (cookieArgs) {
+                    command += ` ${cookieArgs}`;
                 }
 
                 const { stdout } = await this.execWithRetry(command);
@@ -210,7 +218,11 @@ export class YoutubeSource implements MusicSource {
                 console.error('Youtube search failed:', e);
                 return [];
             }
-        });
+        } finally {
+            if (tempFile && fs.existsSync(tempFile)) {
+                try { fs.unlinkSync(tempFile); } catch { }
+            }
+        }
     }
 
     async getDownloadUrl(info: MusicInfo): Promise<string> {
@@ -232,7 +244,8 @@ export class YoutubeSource implements MusicSource {
             }
         }
 
-        return this.withCookies(async (cookieFile) => {
+        const { args: cookieArgs, tempFile } = await this.buildCookieArgs();
+        try {
             try {
                 console.log(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
 
@@ -243,8 +256,8 @@ export class YoutubeSource implements MusicSource {
 
                 // Construct command - use flac for lossless quality
                 let cmd = `yt-dlp -x --audio-format flac -o "${outputTemplate}" "https://www.youtube.com/watch?v=${info.originalId}"`;
-                if (cookieFile) {
-                    cmd += ` --cookies "${cookieFile}"`;
+                if (cookieArgs) {
+                    cmd += ` ${cookieArgs}`;
                 }
 
                 // Download best audio and convert to mp3
@@ -273,7 +286,11 @@ export class YoutubeSource implements MusicSource {
                 console.error('Youtube download failed:', e);
                 throw e;
             }
-        });
+        } finally {
+            if (tempFile && fs.existsSync(tempFile)) {
+                try { fs.unlinkSync(tempFile); } catch { }
+            }
+        }
     }
 
     private convertCookiesToNetscape(cookies: any[]): string {
