@@ -1,25 +1,24 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Loader2, Music, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft, X } from 'lucide-react';
 import { fetch as customFetch } from '@/lib/api';
+import { api } from '@/lib/api';
+import { ArtistSyncResult, ArtistSyncSong } from '@/core/types';
 
 interface Artist {
-    id: number;
+    id: string;
     name: string;
     picUrl: string;
-    albumSize: number;
-    musicSize: number;
 }
 
 export function ArtistSync() {
     const [keyword, setKeyword] = useState('');
     const [loading, setLoading] = useState(false);
-    const [artists, setArtists] = useState<Artist[]>([]);
     const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
     const [syncCount, setSyncCount] = useState<number | ''>(10);
     const [loadingPreview, setLoadingPreview] = useState(false);
-    const [toSyncSongs, setToSyncSongs] = useState<any[]>([]); // Songs to be synced
+    const [toSyncSongs, setToSyncSongs] = useState<ArtistSyncSong[]>([]);
     const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
     const [progress, setProgress] = useState({ current: 0, total: 10 });
     const [currentSong, setCurrentSong] = useState('');
@@ -27,17 +26,21 @@ export function ArtistSync() {
     const [createPlaylist, setCreatePlaylist] = useState(true);
 
     // Cache all songs to support removal/replenishment
-    const [allCachedSongs, setAllCachedSongs] = useState<any[]>([]);
-    const [ignoredSongIds, setIgnoredSongIds] = useState<Set<number>>(new Set());
+    const [allCachedSongs, setAllCachedSongs] = useState<ArtistSyncSong[]>([]);
+    const [ignoredSongIds, setIgnoredSongIds] = useState<Set<string>>(new Set());
 
     // New state for detailed sync result
-    const [syncResult, setSyncResult] = useState<{ success: number, failed: number, failedSongs: string[] } | null>(null);
+    const [syncResult, setSyncResult] = useState<ArtistSyncResult | null>(null);
+    const [jobId, setJobId] = useState<string | null>(null);
+
+    const getArtistNames = (song: ArtistSyncSong) => (song.ar || song.artists || []).map((artist) => artist.name).sort().join(',');
+
+    const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : '请求失败';
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!keyword) return;
         setLoading(true);
-        setArtists([]);
         setSelectedArtist(null);
         setToSyncSongs([]);
         setAllCachedSongs([]);
@@ -46,17 +49,16 @@ export function ArtistSync() {
             const res = await customFetch(`/api/artist/search?q=${encodeURIComponent(keyword)}`);
             const data = await res.json();
             if (Array.isArray(data) && data.length > 0) {
-                setArtists(data);
                 // Auto-select the first artist
-                const firstArtist = data[0];
+                const firstArtist = data[0] as Artist;
                 setSelectedArtist(firstArtist);
 
                 // Fetching is now handled by useEffect
             } else {
                 alert('未找到相关歌手');
             }
-        } catch (e) {
-            console.error(e);
+        } catch (error: unknown) {
+            console.error(error);
             alert('搜索失败');
         } finally {
             setLoading(false);
@@ -74,17 +76,17 @@ export function ArtistSync() {
                 const res = await customFetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
                 const data = await res.json();
                 if (Array.isArray(data)) {
-                    setAllCachedSongs(data);
+                    setAllCachedSongs(data as ArtistSyncSong[]);
                 }
-            } catch (e) {
-                console.error(e);
+            } catch (error: unknown) {
+                console.error(error);
             } finally {
                 setLoadingPreview(false);
             }
         };
 
         fetchSongs();
-    }, [selectedArtist?.id]);
+    }, [selectedArtist]);
 
     // 2. Update toSyncSongs when cache, ignore list, or count changes
     useEffect(() => {
@@ -93,15 +95,15 @@ export function ArtistSync() {
             return;
         }
 
-        const filtered = allCachedSongs.filter(song => !ignoredSongIds.has(song.id));
+        const filtered = allCachedSongs.filter(song => !ignoredSongIds.has(String(song.id)));
         const limit = typeof syncCount === 'number' ? syncCount : 0;
         setToSyncSongs(filtered.slice(0, limit));
 
     }, [allCachedSongs, ignoredSongIds, syncCount]);
 
-    const handleRemoveSong = (songId: number) => {
+    const handleRemoveSong = (songId: number | string) => {
         const newSet = new Set(ignoredSongIds);
-        newSet.add(songId);
+        newSet.add(String(songId));
         setIgnoredSongIds(newSet);
     };
 
@@ -111,7 +113,7 @@ export function ArtistSync() {
         let duplicatesCount = 0;
         toSyncSongs.forEach(song => {
             const name = song.name.trim();
-            const artists = song.ar?.map((a: any) => a.name).sort().join(',') || '';
+            const artists = getArtistNames(song);
             const key = `${name}|${artists}`;
 
             if (seenKeys.has(key)) {
@@ -125,16 +127,16 @@ export function ArtistSync() {
 
     const handleRemoveDuplicates = () => {
         const seenKeys = new Set<string>();
-        const songsToRemove: number[] = [];
+        const songsToRemove: string[] = [];
 
         // Iterate and mark duplicates for removal (add to ignored list)
         toSyncSongs.forEach(song => {
             const name = song.name.trim();
-            const artists = song.ar?.map((a: any) => a.name).sort().join(',') || '';
+            const artists = getArtistNames(song);
             const key = `${name}|${artists}`;
 
             if (seenKeys.has(key)) {
-                songsToRemove.push(song.id);
+                songsToRemove.push(String(song.id));
             } else {
                 seenKeys.add(key);
             }
@@ -158,72 +160,71 @@ export function ArtistSync() {
         setCurrentSong('');
 
         try {
-            const res = await customFetch('/api/artist/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    artistId: selectedArtist.id,
-                    artistName: selectedArtist.name,
-                    count: Number(syncCount),
-                    songs: toSyncSongs, // Pass selected songs
-                    createPlaylist // Pass user preference
-                })
+            const job = await api.jobs.create('sync_artist', {
+                artistId: selectedArtist.id,
+                artistName: selectedArtist.name,
+                count: Number(syncCount),
+                songs: toSyncSongs,
+                createPlaylist
             });
 
-            if (!res.body) throw new Error('No response body');
+            if (!job.jobId) throw new Error(job.error || '创建同步任务失败');
+            setJobId(job.jobId);
 
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n').filter(Boolean);
-
-                lines.forEach(line => {
-                    try {
-                        const event = JSON.parse(line);
-                        if (event.type === 'log') {
-                            const msg = event.message as string;
-
-
-                            // Parse progress
-                            // Log format: [1/10] Processing: SongName
-                            const progressMatch = msg.match(/\[(\d+)\/(\d+)\] Processing: (.+)/);
-                            if (progressMatch) {
-                                setProgress({
-                                    current: parseInt(progressMatch[1]),
-                                    total: parseInt(progressMatch[2])
-                                });
-                                setCurrentSong(progressMatch[3]);
-                                setStatusMessage('正在搜索资源...');
-                            }
-
-                            // Parse other status updates
-                            if (msg.includes('Downloading')) setStatusMessage('正在下载音频...');
-                            if (msg.includes('Embedding metadata')) setStatusMessage('正在写入元数据...');
-                            if (msg.includes('Uploading')) setStatusMessage('正在上传到云盘...');
-                            if (msg.includes('Uploaded success')) setStatusMessage('上传成功！');
-                            if (msg.includes('Selection] Picked')) setStatusMessage('已找到最佳音源');
-                        } else if (event.type === 'summary') {
-                            setSyncResult(event.stats);
-                        }
-                    } catch (e) {
-                        // Ignore parse errors for partial chunks
-                    }
-                });
-            }
-
-            setSyncStatus('success');
-
-        } catch (e: any) {
-
-            setStatusMessage(e.message);
+        } catch (error: unknown) {
+            setStatusMessage(getErrorMessage(error));
             setSyncStatus('error');
         }
     };
+
+    useEffect(() => {
+        if (!jobId || syncStatus !== 'syncing') return;
+
+        let stopped = false;
+
+        const poll = async () => {
+            try {
+                const status = await api.jobs.get(jobId);
+                if (stopped) return;
+
+                if (status.progress) {
+                    setProgress({
+                        current: status.progress.current,
+                        total: status.progress.total
+                    });
+                    setCurrentSong(status.progress.songName || '');
+                    setStatusMessage(status.progress.message || '处理中...');
+                }
+
+                if (status.status === 'succeeded') {
+                    setSyncResult(status.result as ArtistSyncResult | null);
+                    setSyncStatus('success');
+                    setJobId(null);
+                    return;
+                }
+
+                if (status.status === 'failed' || status.status === 'cancelled') {
+                    setStatusMessage(status.error || '同步失败');
+                    setSyncStatus('error');
+                    setJobId(null);
+                    return;
+                }
+
+                setTimeout(poll, 1200);
+            } catch (error: unknown) {
+                if (stopped) return;
+                setStatusMessage(getErrorMessage(error) || '同步状态查询失败');
+                setSyncStatus('error');
+                setJobId(null);
+            }
+        };
+
+        poll();
+
+        return () => {
+            stopped = true;
+        };
+    }, [jobId, syncStatus]);
 
 
 
@@ -298,7 +299,7 @@ export function ArtistSync() {
                         <div className="flex flex-col gap-4 mb-4">
                             {/* 第一行：歌手信息 */}
                             <div className="flex items-center gap-3">
-                                <img src={selectedArtist.picUrl} className="w-12 h-12 md:w-10 md:h-10 rounded-full object-cover shadow-sm flex-shrink-0" />
+                                <img src={selectedArtist.picUrl} alt={selectedArtist.name} className="w-12 h-12 md:w-10 md:h-10 rounded-full object-cover shadow-sm flex-shrink-0" />
                                 <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 min-w-0">
                                     <h3 className="text-lg md:text-xl font-bold text-gray-900 truncate">
                                         {selectedArtist.name}
@@ -384,8 +385,8 @@ export function ArtistSync() {
                                                 </div>
 
                                                 {/* 2. Artist Column - Fixed Width ~25% - 隐藏在移动端 */}
-                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-800 truncate" title={song.ar?.map((a: any) => a.name).join(' / ')}>
-                                                    {song.ar?.map((a: any) => a.name).join(' / ')}
+                                                <div className="hidden md:block w-1/4 px-2 text-sm text-gray-800 truncate" title={getArtistNames(song).replaceAll(',', ' / ')}>
+                                                    {getArtistNames(song).replaceAll(',', ' / ')}
                                                 </div>
 
                                                 {/* 3. Album Column - Fixed Width ~25% - 隐藏在移动端 */}

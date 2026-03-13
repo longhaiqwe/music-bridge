@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { neteaseService } from '@/lib/netease';
+import { qqMusicService } from '@/lib/qqmusic';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -12,8 +12,7 @@ export async function GET(request: Request) {
     try {
         console.log('==================================================');
         console.log(`[Artist Search] Query: ${q}`);
-        const cookie = request.headers.get('x-netease-cookie') || '';
-        const artists = await neteaseService.searchArtist(q, cookie);
+        const artists = await qqMusicService.searchArtists(q);
         console.log(`[Artist Search] Found ${artists.length} artists`);
         console.log('==================================================');
         return NextResponse.json(artists);

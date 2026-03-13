@@ -15,79 +15,131 @@ export interface SongInfo {
     source: 'qq' | 'netease';
 }
 
+export interface QQArtistInfo {
+    id: string;
+    name: string;
+    picUrl: string;
+}
+
+interface QQSearchSinger {
+    singerMID?: string;
+    singerMid?: string;
+    singermid?: string;
+    singerID?: string | number;
+    singerId?: string | number;
+    singerName?: string;
+    singername?: string;
+    name?: string;
+}
+
+interface QQSongArtist {
+    mid?: string | number;
+    id?: string | number;
+    name?: string;
+}
+
+interface QQSongAlbum {
+    mid?: string | number;
+    id?: string | number;
+    name?: string;
+}
+
+interface QQSongRecord {
+    songmid?: string | number;
+    mid?: string | number;
+    songid?: string | number;
+    id?: string | number;
+    songname?: string;
+    name?: string;
+    title?: string;
+    singer?: QQSongArtist[];
+    album?: QQSongAlbum;
+    albumid?: string | number;
+    albummid?: string | number;
+    albumname?: string;
+    interval?: number;
+    musicData?: QQSongRecord;
+}
+
 export class QQMusicService {
+    private normalizeSong(rawSong: QQSongRecord): SongInfo {
+        const song = rawSong.musicData || rawSong;
+        const albumMid = song.albummid || song.album?.mid;
+
+        return {
+            id: song.songmid || song.mid || song.songid || song.id || '',
+            name: song.songname || song.name || song.title || '',
+            ar: (song.singer || []).map((artist) => ({
+                id: artist.mid || artist.id || '',
+                name: artist.name || ''
+            })),
+            al: {
+                id: albumMid || song.albumid || song.album?.id || '',
+                name: song.albumname || song.album?.name || '',
+                picUrl: albumMid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albumMid}.jpg` : undefined
+            },
+            dt: (song.interval || 0) * 1000,
+            source: 'qq'
+        };
+    }
+
+    async searchArtists(keyword: string): Promise<QQArtistInfo[]> {
+        try {
+            const searchRes = await qq.api('search', {
+                key: keyword,
+                t: 9,
+                pageSize: 10
+            });
+
+            const list = searchRes?.data?.list || searchRes?.list || [];
+
+            return list
+                .map((artist: QQSearchSinger) => {
+                    const singerMid = artist.singerMID || artist.singerMid || artist.singermid;
+                    const name = artist.singerName || artist.singername || artist.name || '';
+
+                    if (!singerMid || !name) {
+                        return null;
+                    }
+
+                    return {
+                        id: singerMid,
+                        name,
+                        picUrl: `https://y.gtimg.cn/music/photo_new/T001R300x300M000${singerMid}.jpg`
+                    } satisfies QQArtistInfo;
+                })
+                .filter((artist: QQArtistInfo | null): artist is QQArtistInfo => Boolean(artist));
+        } catch (error) {
+            console.error('QQ Artist Search failed:', error);
+            return [];
+        }
+    }
 
     // Search for an artist and return their hot songs
     async getArtistHotSongs(artistName: string): Promise<SongInfo[]> {
+        const artists = await this.searchArtists(artistName);
+        const exactMatch = artists.find((artist) => artist.name.replace(/\s+/g, '') === artistName.replace(/\s+/g, ''));
+        const resolvedArtist = exactMatch || artists[0];
+
+        if (!resolvedArtist) {
+            return [];
+        }
+
+        return this.getArtistHotSongsBySingerMid(resolvedArtist.id);
+    }
+
+    async getArtistHotSongsBySingerMid(singerMid: string, num = 20): Promise<SongInfo[]> {
         try {
-            // 1. Search for the artist to to confirm we can find them.
-            // Using a limit of 5 to just get the top result which is likely the artist.
-            // @ts-ignore
-            const searchRes = await qq.api('search', {
-                key: artistName,
-                pageSize: 50 // Increase limit to fetch more songs
+            const result = await qq.api('singer/songs', {
+                singermid: singerMid,
+                num,
+                page: 1
             });
 
-            // @ts-ignore
-            const list = searchRes?.list || searchRes?.data?.list || [];
-
-            if (list.length > 0) {
-                // Even a general search usually puts the artist's songs first if we search for the artist name?
-                // Actually standard behavior: searching "ArtistName" returns songs by that artist sorted by popularity.
-                // This is the simplest way to get "Hot Songs".
-
-                // Filter to ensure the song artist matches the requested artist (fuzzy match)
-                // Normalize function: remove spaces and convert to lower case
-                const normalize = (str: string) => str.toLowerCase().replace(/\s+/g, '');
-                const normalizedArtistName = normalize(artistName);
-
-                // @ts-ignore
-                const filtered = list.filter(item => {
-                    // @ts-ignore
-                    const singers = item.singer || [];
-                    // @ts-ignore
-                    return singers.some(s => {
-                        const sName = normalize(s.name);
-                        return sName.includes(normalizedArtistName) || normalizedArtistName.includes(sName);
-                    });
-                });
-
-                // @ts-ignore
-                return filtered.map(s => {
-                    return {
-                        id: s.songmid || s.mid || s.songid, // Prefer songmid
-                        name: s.songname || s.name || s.title,
-                        ar: (s.singer || []).map((art: any) => ({
-                            id: art.mid || art.id,
-                            name: art.name
-                        })),
-                        al: {
-                            id: s.albummid || s.albumid || s.album?.mid,
-                            name: s.albumname || s.album?.name || '',
-                            picUrl: (s.albummid || s.album?.mid) ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid || s.album?.mid}.jpg` : undefined
-                        },
-                        dt: (s.interval || 0) * 1000, // QQ uses seconds, convert to ms
-                        source: 'qq'
-                    } as SongInfo;
-                });
-            } else {
-                console.warn(`[QQ Music Debug] No results found for ${artistName}. Raw keys: ${Object.keys(searchRes || {})}`);
-                if (searchRes && searchRes.data) {
-                    console.warn(`[QQ Music Debug] searchRes.data keys: ${Object.keys(searchRes.data)}`);
-                }
-                // Try logging the code or message if available
-                // @ts-ignore
-                if (searchRes?.code) console.warn(`[QQ Music Debug] Code: ${searchRes.code}`);
-                // @ts-ignore
-                if (searchRes?.subcode) console.warn(`[QQ Music Debug] Subcode: ${searchRes.subcode}`);
-            }
-
-            return [];
-
-        } catch (e) {
-            console.error('QQ Music Search failed:', e);
-            // Return empty array to allow fallback to original NetEase sorting
-            // Return empty array to allow fallback to original NetEase sorting
+            const list = result?.data?.list || result?.list || [];
+            return list.map((song: QQSongRecord) => this.normalizeSong(song));
+        } catch (error) {
+            console.error('QQ Artist Hot Songs failed:', error);
             return [];
         }
     }
@@ -95,48 +147,25 @@ export class QQMusicService {
     // General search for songs
     async search(keyword: string): Promise<SongInfo[]> {
         try {
-            // @ts-ignore
             const searchRes = await qq.api('search', {
                 key: keyword,
                 pageSize: 10
             });
 
-            // @ts-ignore
             const list = searchRes?.list || searchRes?.data?.list || [];
-
-            // @ts-ignore
-            return list.map(s => {
-                return {
-                    id: s.songmid || s.mid || s.songid,
-                    name: s.songname || s.name || s.title,
-                    ar: (s.singer || []).map((art: any) => ({
-                        id: art.mid || art.id,
-                        name: art.name
-                    })),
-                    al: {
-                        id: s.albummid || s.albumid || s.album?.mid,
-                        name: s.albumname || s.album?.name || '',
-                        picUrl: (s.albummid || s.album?.mid) ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid || s.album?.mid}.jpg` : undefined
-                    },
-                    dt: (s.interval || 0) * 1000,
-                    source: 'qq'
-                } as SongInfo;
-            });
-        } catch (e) {
-            console.error('QQ General Search failed:', e);
+            return list.map((song: QQSongRecord) => this.normalizeSong(song));
+        } catch (error) {
+            console.error('QQ General Search failed:', error);
             return [];
         }
     }
     async getLyric(songId: string | number): Promise<string> {
         try {
-            // @ts-ignore
             const res = await qq.api('lyric', {
                 songmid: songId // QQ Music uses songmid for lyrics usually
             });
 
-            // @ts-ignore
             if (res?.data?.lyric) return res.data.lyric;
-            // @ts-ignore
             if (res?.lyric) return res.lyric;
 
             return '';

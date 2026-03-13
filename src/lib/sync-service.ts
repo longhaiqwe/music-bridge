@@ -7,6 +7,9 @@ import fs from 'fs';
 import { MusicInfo } from '@/lib/downloader/types';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
+import { SongSyncEvent } from '@/core/types';
+import { SongInfo } from '@/lib/qqmusic';
+import { Readable } from 'stream';
 
 // Define Logger Type
 export type Logger = (msg: string) => void;
@@ -15,6 +18,16 @@ interface SyncOptions {
     onLog?: Logger;
     skipUpload?: boolean; // For testing or local-only mode
     neteaseCookie?: string; // 客户端传入的网易云 Cookie
+    onEvent?: (event: SongSyncEvent) => void;
+}
+
+interface UploadResult extends Record<string, unknown> {
+    code?: number;
+    songId?: string | number | null;
+    skipped?: boolean;
+    privateCloud?: {
+        songId?: string | number;
+    };
 }
 
 // Helper to download file
@@ -22,8 +35,7 @@ async function downloadFile(url: string, dest: string) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Failed to download: ${res.statusText}`);
     if (!res.body) throw new Error('No body');
-    // @ts-ignore
-    await pipeline(res.body, createWriteStream(dest));
+    await pipeline(Readable.fromWeb(res.body as never), createWriteStream(dest));
 }
 
 const TMP_DIR = path.join(process.cwd(), 'tmp_downloads');
@@ -34,8 +46,9 @@ if (!fs.existsSync(TMP_DIR)) {
 export async function processSongSync(
     baseInfo: MusicInfo,
     options: SyncOptions = {}
-): Promise<any> {
+): Promise<UploadResult> {
     const log = options.onLog || console.log;
+    const emit = options.onEvent || (() => undefined);
     const neteaseCookie = options.neteaseCookie;
     let downloadInfo: MusicInfo = { ...baseInfo };
     let lyrics = '';
@@ -46,6 +59,11 @@ export async function processSongSync(
     try {
         log('==================================================');
         log(`[Processing] ${baseInfo.name} - ${baseInfo.artist}`);
+        emit({
+            type: 'song.prefetch_started',
+            message: '正在准备音源信息...',
+            data: { songName: baseInfo.name }
+        });
 
         // ---------------------------------------------------------
         // 1. Pre-fetch Strategy (QQ Music First)
@@ -58,8 +76,8 @@ export async function processSongSync(
 
             const isLive = (name: string) => /live|concert|现场|演唱会/i.test(name);
             const isTargetLive = isLive(baseInfo.name);
-            let robustCandidate = null;
-            let finalMatch = null;
+            let robustCandidate: SongInfo | null = null;
+            let finalMatch: SongInfo | null = null;
 
             for (const qs of qqSongs) {
                 const isCandidateLive = isLive(qs.name);
@@ -87,7 +105,7 @@ export async function processSongSync(
             }
 
             if (!finalMatch && robustCandidate) {
-                const qs = robustCandidate as any;
+                const qs = robustCandidate;
                 const lrc = await qqMusicService.getLyric(qs.id);
                 if (lrc && lrc.length > 200) {
                     lyrics = lrc;
@@ -102,7 +120,7 @@ export async function processSongSync(
                     ...downloadInfo,
                     duration: qs.dt / 1000,
                     album: qs.al.name,
-                    artist: qs.ar.map((a: any) => a.name).join('/'),
+                    artist: qs.ar.map((artist) => artist.name).join('/'),
                     // Force QQ song name if it's cleaner, but baseInfo name is usually fine
                     // Using baseInfo.name keeps original user intent, but QQ name might be more standard
                     songName: qs.name,
@@ -113,8 +131,8 @@ export async function processSongSync(
                 log(`[Strategy] No suitable QQ Music match found. Using original info.`);
             }
 
-        } catch (e: any) {
-            console.warn(`[Strategy] QQ Pre-fetch failed:`, e.message);
+        } catch (error: unknown) {
+            console.warn(`[Strategy] QQ Pre-fetch failed:`, error instanceof Error ? error.message : String(error));
         }
 
         // ---------------------------------------------------------
@@ -122,6 +140,11 @@ export async function processSongSync(
         // ---------------------------------------------------------
         step = 'download';
         log(`Starting download logic...`);
+        emit({
+            type: 'song.download_started',
+            message: '正在下载音频...',
+            data: { songName: baseInfo.name }
+        });
 
         // If we still have 'netease' source (original) or no source, we must search for a downloadable source
         if (downloadInfo.source === 'netease' || !downloadInfo.source) {
@@ -174,6 +197,11 @@ export async function processSongSync(
                 const stats = fs.statSync(rawFilePath);
                 const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
                 log(`Download complete: ${rawFilePath} (${fileSizeInMB} MB)`);
+                emit({
+                    type: 'song.downloaded',
+                    message: `下载完成 (${fileSizeInMB} MB)`,
+                    data: { songName: baseInfo.name, fileSizeInMB }
+                });
             } catch { }
 
         } else {
@@ -182,6 +210,11 @@ export async function processSongSync(
             rawFilePath = path.join(TMP_DIR, `raw_${Date.now()}.flac`);
             await downloadFile(downloadUrl, rawFilePath);
             ext = 'flac';
+            emit({
+                type: 'song.downloaded',
+                message: '下载完成',
+                data: { songName: baseInfo.name }
+            });
         }
 
         const finalFileName = getSafeFileName(baseInfo.name, ext);
@@ -195,6 +228,11 @@ export async function processSongSync(
         // ---------------------------------------------------------
         step = 'metadata';
         log('Embedding metadata...');
+        emit({
+            type: 'song.metadata_started',
+            message: '正在写入元数据...',
+            data: { songName: baseInfo.name }
+        });
 
         if (!lyrics) {
             // Fallback to NetEase
@@ -224,7 +262,7 @@ export async function processSongSync(
                         }
                     }
                 }
-            } catch (e) {
+            } catch {
                 // ignore
             }
         }
@@ -242,6 +280,11 @@ export async function processSongSync(
             coverUrl: downloadInfo.coverUrl || baseInfo.coverUrl,
             lyrics: lyrics
         });
+        emit({
+            type: 'song.metadata_embedded',
+            message: '元数据写入完成',
+            data: { songName: baseInfo.name }
+        });
 
         // ---------------------------------------------------------
         // 4. Upload
@@ -253,7 +296,12 @@ export async function processSongSync(
         }
 
         log('Uploading to Netease Cloud Disk...');
-        const uploadResult = await neteaseService.uploadToCloudDisk(finalFilePath, neteaseCookie);
+        emit({
+            type: 'song.upload_started',
+            message: '正在上传到云盘...',
+            data: { songName: baseInfo.name }
+        });
+        const uploadResult = await neteaseService.uploadToCloudDisk(finalFilePath, neteaseCookie) as UploadResult;
 
         let songId = null;
         if (uploadResult?.privateCloud?.songId) {
@@ -267,15 +315,26 @@ export async function processSongSync(
         }
 
         log('==================================================');
+        emit({
+            type: 'song.uploaded',
+            message: '上传完成',
+            data: { songName: baseInfo.name, songId: songId || undefined }
+        });
 
         return {
             ...uploadResult,
             songId // Ensure a consistent top-level songId is available
         };
 
-    } catch (e: any) {
-        log(`Error in processSongSync (Step: ${step}): ${e.message}`);
-        throw e;
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : '同步失败';
+        log(`Error in processSongSync (Step: ${step}): ${message}`);
+        emit({
+            type: 'song.failed',
+            message,
+            data: { songName: baseInfo.name, step }
+        });
+        throw error;
     } finally {
         // Cleanup
         // If rawFilePath exists and it was a temp file (not the one we just created as final), delete it

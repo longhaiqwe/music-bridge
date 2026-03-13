@@ -45,3 +45,4 @@ next-env.d.ts
 # tmp file
 tmp_downloads/*
 cookie.json
+.data/

@@ -30,13 +30,25 @@ export function MusicSearch() {
     const handleSync = async (info: MusicInfo) => {
         setSyncStatus(prev => ({ ...prev, [info.id]: 'syncing' }));
         try {
-            const res = await api.sync(info);
-            if (res.success) {
-                setSyncStatus(prev => ({ ...prev, [info.id]: 'success' }));
-            } else {
-                setSyncStatus(prev => ({ ...prev, [info.id]: 'error' }));
+            const job = await api.sync(info);
+            if (!job.jobId) {
+                throw new Error(job.error || 'Failed to create sync job');
             }
-        } catch (e) {
+
+            while (true) {
+                const status = await api.jobs.get(job.jobId);
+                if (status.status === 'succeeded') {
+                    setSyncStatus(prev => ({ ...prev, [info.id]: 'success' }));
+                    return;
+                }
+
+                if (status.status === 'failed' || status.status === 'cancelled') {
+                    throw new Error(status.error || '同步失败');
+                }
+
+                await new Promise((resolve) => setTimeout(resolve, 1200));
+            }
+        } catch {
             setSyncStatus(prev => ({ ...prev, [info.id]: 'error' }));
         }
     };

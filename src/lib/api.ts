@@ -1,4 +1,5 @@
 import { MusicInfo } from './downloader/types';
+import { ArtistSyncResult, JobEvent, JobStatus, SongSyncResult } from '@/core/types';
 
 // 从 LocalStorage 获取网易云 Cookie
 export const getNeteaseCookie = () => {
@@ -52,6 +53,36 @@ export const api = {
         getTopSongs: async (id: number | string) => {
             const res = await customFetch(`/api/artist/top-songs?id=${id}`);
             return res.json();
+        }
+    },
+
+    jobs: {
+        create: async (type: 'sync_song' | 'sync_artist', input: Record<string, unknown>) => {
+            const res = await customFetch('/api/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, input })
+            });
+            return res.json() as Promise<{ jobId: string; status: JobStatus; error?: string }>;
+        },
+        get: async (jobId: string) => {
+            const res = await customFetch(`/api/jobs/${jobId}`);
+            return res.json() as Promise<{
+                jobId: string;
+                status: JobStatus;
+                progress: {
+                    current: number;
+                    total: number;
+                    message: string;
+                    songName?: string;
+                };
+                result?: SongSyncResult | ArtistSyncResult;
+                error?: string;
+            }>;
+        },
+        events: async (jobId: string, since = 0) => {
+            const res = await customFetch(`/api/jobs/${jobId}/events?since=${since}`);
+            return res.json() as Promise<{ events: JobEvent[]; nextCursor: number }>;
         }
     }
 };

@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
-import { processSongSync } from '@/lib/sync-service';
 import { MusicInfo } from '@/lib/downloader/types';
+import { jobRunner } from '@/server/jobs/runner';
+
+export const runtime = 'nodejs';
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Sync failed';
+}
 
 export async function POST(request: Request) {
     try {
@@ -10,21 +16,20 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Invalid music info' }, { status: 400 });
         }
 
-        // Use the shared sync service
         const cookie = request.headers.get('x-netease-cookie') || '';
-        const result = await processSongSync(info, {
-            onLog: (msg) => console.log(msg),
+        const job = jobRunner.createJob('sync_song', {
+            info,
             neteaseCookie: cookie
         });
+        jobRunner.start(job.id);
 
-        return NextResponse.json({ success: true, uploadResult: result });
+        return NextResponse.json({ jobId: job.id, status: job.status }, { status: 202 });
 
-    } catch (e: any) {
-        console.error(`Sync failed:`, e);
+    } catch (error: unknown) {
+        console.error(`Sync failed:`, error);
         return NextResponse.json({
-            error: e.message || 'Sync failed',
-            details: String(e),
-            stack: e.stack
+            error: getErrorMessage(error),
+            details: String(error)
         }, { status: 500 });
     }
 }

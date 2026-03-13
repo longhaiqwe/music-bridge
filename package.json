@@ -2,11 +2,15 @@
   "name": "music-bridge",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "music-bridge": "./bin/music-bridge.js"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "cli": "node ./bin/music-bridge.js",
     "postinstall": "patch-package"
   },
   "dependencies": {
