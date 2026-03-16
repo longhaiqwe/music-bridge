@@ -27,12 +27,23 @@ interface QQSearchSinger {
     singermid?: string;
     singerID?: string | number;
     singerId?: string | number;
+    singerid?: string | number;
     singerName?: string;
     singername?: string;
     name?: string;
+    mid?: string | number;
+    id?: string | number;
 }
 
 interface QQSongArtist {
+    singerMID?: string;
+    singerMid?: string;
+    singermid?: string;
+    singerID?: string | number;
+    singerId?: string | number;
+    singerid?: string | number;
+    singerName?: string;
+    singername?: string;
     mid?: string | number;
     id?: string | number;
     name?: string;
@@ -68,6 +79,14 @@ interface QQMusicSearchResponse {
                 song?: {
                     list?: QQSongRecord[];
                 };
+                singer?: {
+                    list?: QQSearchSinger[];
+                };
+                zhida?: {
+                    singer?: QQSearchSinger[];
+                    singeritem?: QQSearchSinger[];
+                    list?: QQSearchSinger[];
+                };
             };
             meta?: {
                 code?: number;
@@ -79,6 +98,138 @@ interface QQMusicSearchResponse {
 
 export class QQMusicService {
     private readonly searchEndpoint = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+
+    private normalizeText(value: string): string {
+        return value.toLowerCase().replace(/\s+/g, '').trim();
+    }
+
+    private normalizeArtist(rawArtist: QQSearchSinger | QQSongArtist): QQArtistInfo | null {
+        const singerMid = String(
+            rawArtist.singerMID ||
+            rawArtist.singerMid ||
+            rawArtist.singermid ||
+            rawArtist.mid ||
+            rawArtist.singerID ||
+            rawArtist.singerId ||
+            rawArtist.singerid ||
+            rawArtist.id ||
+            ''
+        );
+        const name = String(
+            rawArtist.singerName ||
+            rawArtist.singername ||
+            rawArtist.name ||
+            ''
+        ).trim();
+
+        if (!singerMid || !name) {
+            return null;
+        }
+
+        return {
+            id: singerMid,
+            name,
+            picUrl: `https://y.gtimg.cn/music/photo_new/T001R300x300M000${singerMid}.jpg`
+        };
+    }
+
+    private dedupeAndRankArtists(keyword: string, artists: Array<QQArtistInfo | null>): QQArtistInfo[] {
+        const normalizedKeyword = this.normalizeText(keyword);
+        const unique = new Map<string, QQArtistInfo>();
+
+        for (const artist of artists) {
+            if (!artist) {
+                continue;
+            }
+
+            if (!unique.has(artist.id)) {
+                unique.set(artist.id, artist);
+            }
+        }
+
+        return [...unique.values()]
+            .sort((a, b) => {
+                const aName = this.normalizeText(a.name);
+                const bName = this.normalizeText(b.name);
+                const aScore = aName === normalizedKeyword ? 0 : (aName.includes(normalizedKeyword) || normalizedKeyword.includes(aName) ? 1 : 2);
+                const bScore = bName === normalizedKeyword ? 0 : (bName.includes(normalizedKeyword) || normalizedKeyword.includes(bName) ? 1 : 2);
+
+                if (aScore !== bScore) {
+                    return aScore - bScore;
+                }
+
+                return a.name.localeCompare(b.name, 'zh-Hans-CN');
+            })
+            .slice(0, 10);
+    }
+
+    private async searchArtistsViaMusicu(keyword: string, pageSize = 10): Promise<QQArtistInfo[]> {
+        const payload = {
+            comm: {
+                ct: 19,
+                cv: 1859,
+                uin: '0'
+            },
+            req: {
+                method: 'DoSearchForQQMusicDesktop',
+                module: 'music.search.SearchCgiService',
+                param: {
+                    grp: 1,
+                    num_per_page: pageSize,
+                    page_num: 1,
+                    query: keyword,
+                    search_type: 9
+                }
+            }
+        };
+
+        const response = await fetch(this.searchEndpoint, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json, text/plain, */*',
+                'Content-Type': 'application/json;charset=utf-8',
+                Referer: 'https://y.qq.com/',
+                Origin: 'https://y.qq.com',
+                'User-Agent': 'Mozilla/5.0'
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(10000)
+        });
+
+        if (!response.ok) {
+            throw new Error(`QQ artist search request failed with status ${response.status}`);
+        }
+
+        const data = await response.json() as QQMusicSearchResponse;
+        const meta = data.req?.data?.meta;
+
+        if (meta?.code && meta.code !== 0) {
+            throw new Error(meta.msg || `QQ artist search returned code ${meta.code}`);
+        }
+
+        const body = data.req?.data?.body;
+        const singerCandidates = [
+            ...(body?.singer?.list || []),
+            ...(body?.zhida?.singer || []),
+            ...(body?.zhida?.singeritem || []),
+            ...(body?.zhida?.list || [])
+        ];
+
+        return this.dedupeAndRankArtists(
+            keyword,
+            singerCandidates.map((artist) => this.normalizeArtist(artist))
+        );
+    }
+
+    private async deriveArtistsFromSongs(keyword: string): Promise<QQArtistInfo[]> {
+        const songs = await this.searchSongsViaMusicu(keyword, 30);
+        const artists = songs.flatMap((song) => (song.musicData || song).singer || []);
+
+        return this.dedupeAndRankArtists(
+            keyword,
+            artists.map((artist) => this.normalizeArtist(artist))
+        );
+    }
 
     private async searchSongsViaMusicu(keyword: string, pageSize = 10): Promise<QQSongRecord[]> {
         const payload = {
@@ -150,32 +301,18 @@ export class QQMusicService {
 
     async searchArtists(keyword: string): Promise<QQArtistInfo[]> {
         try {
-            const searchRes = await qq.api('search', {
-                key: keyword,
-                t: 9,
-                pageSize: 10
-            });
-
-            const list = searchRes?.data?.list || searchRes?.list || [];
-
-            return list
-                .map((artist: QQSearchSinger) => {
-                    const singerMid = artist.singerMID || artist.singerMid || artist.singermid;
-                    const name = artist.singerName || artist.singername || artist.name || '';
-
-                    if (!singerMid || !name) {
-                        return null;
-                    }
-
-                    return {
-                        id: singerMid,
-                        name,
-                        picUrl: `https://y.gtimg.cn/music/photo_new/T001R300x300M000${singerMid}.jpg`
-                    } satisfies QQArtistInfo;
-                })
-                .filter((artist: QQArtistInfo | null): artist is QQArtistInfo => Boolean(artist));
+            const artists = await this.searchArtistsViaMusicu(keyword, 10);
+            if (artists.length > 0) {
+                return artists;
+            }
         } catch (error) {
             console.error('QQ Artist Search failed:', error);
+        }
+
+        try {
+            return await this.deriveArtistsFromSongs(keyword);
+        } catch (fallbackError) {
+            console.error('QQ Artist Search fallback failed:', fallbackError);
             return [];
         }
     }
