@@ -61,7 +61,72 @@ interface QQSongRecord {
     musicData?: QQSongRecord;
 }
 
+interface QQMusicSearchResponse {
+    req?: {
+        data?: {
+            body?: {
+                song?: {
+                    list?: QQSongRecord[];
+                };
+            };
+            meta?: {
+                code?: number;
+                msg?: string;
+            };
+        };
+    };
+}
+
 export class QQMusicService {
+    private readonly searchEndpoint = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+
+    private async searchSongsViaMusicu(keyword: string, pageSize = 10): Promise<QQSongRecord[]> {
+        const payload = {
+            comm: {
+                ct: 19,
+                cv: 1859,
+                uin: '0'
+            },
+            req: {
+                method: 'DoSearchForQQMusicDesktop',
+                module: 'music.search.SearchCgiService',
+                param: {
+                    grp: 1,
+                    num_per_page: pageSize,
+                    page_num: 1,
+                    query: keyword,
+                    search_type: 0
+                }
+            }
+        };
+
+        const response = await fetch(this.searchEndpoint, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json, text/plain, */*',
+                'Content-Type': 'application/json;charset=utf-8',
+                Referer: 'https://y.qq.com/',
+                Origin: 'https://y.qq.com',
+                'User-Agent': 'Mozilla/5.0'
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(10000)
+        });
+
+        if (!response.ok) {
+            throw new Error(`QQ search request failed with status ${response.status}`);
+        }
+
+        const data = await response.json() as QQMusicSearchResponse;
+        const meta = data.req?.data?.meta;
+
+        if (meta?.code && meta.code !== 0) {
+            throw new Error(meta.msg || `QQ search returned code ${meta.code}`);
+        }
+
+        return data.req?.data?.body?.song?.list || [];
+    }
+
     private normalizeSong(rawSong: QQSongRecord): SongInfo {
         const song = rawSong.musicData || rawSong;
         const albumMid = song.albummid || song.album?.mid;
@@ -147,12 +212,7 @@ export class QQMusicService {
     // General search for songs
     async search(keyword: string): Promise<SongInfo[]> {
         try {
-            const searchRes = await qq.api('search', {
-                key: keyword,
-                pageSize: 10
-            });
-
-            const list = searchRes?.list || searchRes?.data?.list || [];
+            const list = await this.searchSongsViaMusicu(keyword, 10);
             return list.map((song: QQSongRecord) => this.normalizeSong(song));
         } catch (error) {
             console.error('QQ General Search failed:', error);

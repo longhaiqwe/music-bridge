@@ -1,6 +1,14 @@
 import NodeID3 from 'node-id3';
+import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import util from 'util';
+
+const execFileAsync = util.promisify(execFile);
+
+function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
 
 export interface SongMetadata {
     title: string;
@@ -24,14 +32,10 @@ export async function embedMetadata(
     const ext = path.extname(inputPath).toLowerCase();
     const outExt = path.extname(outputPath).toLowerCase();
 
-    const { exec } = require('child_process');
-    const util = require('util');
-    const execAsync = util.promisify(exec);
-
     try {
         // ── FLAC path: use ffmpeg for Vorbis Comments ──
         if (ext === '.flac' || outExt === '.flac') {
-            await embedFlacMetadata(inputPath, outputPath, metadata, execAsync);
+            await embedFlacMetadata(inputPath, outputPath, metadata);
             return;
         }
 
@@ -42,10 +46,24 @@ export async function embedMetadata(
             // Convert other formats to mp3
             console.log(`[embedMetadata] Converting ${ext} to mp3...`);
             try {
-                await execAsync(`ffmpeg -i "${inputPath}" -vn -ar 44100 -ac 2 -b:a 320k -f mp3 -y "${outputPath}"`);
+                await execFileAsync('ffmpeg', [
+                    '-i',
+                    inputPath,
+                    '-vn',
+                    '-ar',
+                    '44100',
+                    '-ac',
+                    '2',
+                    '-b:a',
+                    '320k',
+                    '-f',
+                    'mp3',
+                    '-y',
+                    outputPath
+                ]);
                 console.log(`[embedMetadata] Conversion successful: ${outputPath}`);
-            } catch (ffmpegErr: any) {
-                console.error('[embedMetadata] FFMPEG conversion failed:', ffmpegErr);
+            } catch (ffmpegErr: unknown) {
+                console.error('[embedMetadata] FFMPEG conversion failed:', getErrorMessage(ffmpegErr));
                 fs.copyFileSync(inputPath, outputPath);
             }
         }
@@ -106,12 +124,10 @@ export async function embedMetadata(
 async function embedFlacMetadata(
     inputPath: string,
     outputPath: string,
-    metadata: SongMetadata,
-    execAsync: (cmd: string) => Promise<{ stdout: string; stderr: string }>
+    metadata: SongMetadata
 ): Promise<void> {
     const tmpDir = path.dirname(outputPath);
     let coverPath: string | null = null;
-    let lyricsPath: string | null = null;
 
     try {
         // Download cover art to a temp file if available
@@ -128,55 +144,42 @@ async function embedFlacMetadata(
             }
         }
 
-        // Write lyrics to a temp file for embedding
-        if (metadata.lyrics) {
-            lyricsPath = path.join(tmpDir, `_lyrics_${Date.now()}.txt`);
-            fs.writeFileSync(lyricsPath, metadata.lyrics, 'utf-8');
-        }
-
-        // Escape double quotes in metadata values for shell safety
-        const escMeta = (s: string) => s.replace(/"/g, '\\"');
-
-        // Build ffmpeg command
-        // -i input.flac: input audio
-        // -i cover.jpg: input cover (optional)
-        // -map 0:a: take audio from first input
-        // -map 1: take image from second input (if cover exists)
-        // -metadata: write Vorbis Comment tags
-        // -codec copy: don't re-encode audio (lossless copy)
-        let cmd = `ffmpeg -i "${inputPath}"`;
+        const args = ['-i', inputPath];
 
         if (coverPath) {
-            cmd += ` -i "${coverPath}"`;
+            args.push('-i', coverPath);
         }
 
-        cmd += ` -map 0:a`;
+        args.push('-map', '0:a');
 
         if (coverPath) {
-            cmd += ` -map 1 -disposition:v attached_pic`;
+            args.push('-map', '1', '-disposition:v', 'attached_pic');
         }
 
-        cmd += ` -codec copy`;
-        cmd += ` -metadata title="${escMeta(metadata.title)}"`;
-        cmd += ` -metadata artist="${escMeta(metadata.artist)}"`;
+        args.push(
+            '-codec',
+            'copy',
+            '-metadata',
+            `title=${metadata.title}`,
+            '-metadata',
+            `artist=${metadata.artist}`
+        );
 
         if (metadata.album) {
-            cmd += ` -metadata album="${escMeta(metadata.album)}"`;
+            args.push('-metadata', `album=${metadata.album}`);
         }
 
         if (metadata.lyrics) {
-            // Embed lyrics as a LYRICS Vorbis Comment
-            // For very long lyrics, use the temp file approach
-            cmd += ` -metadata LYRICS="${escMeta(metadata.lyrics.substring(0, 10000))}"`;
+            args.push('-metadata', `LYRICS=${metadata.lyrics.substring(0, 10000)}`);
         }
 
-        cmd += ` -y "${outputPath}"`;
+        args.push('-y', outputPath);
 
-        await execAsync(cmd);
+        await execFileAsync('ffmpeg', args);
         console.log(`[embedFlacMetadata] Successfully embedded metadata for: ${metadata.title} (Lyrics: ${metadata.lyrics?.length || 0} chars)`);
 
-    } catch (e: any) {
-        console.error('[embedFlacMetadata] Error:', e.message);
+    } catch (e: unknown) {
+        console.error('[embedFlacMetadata] Error:', getErrorMessage(e));
         // Fallback: just copy the file without metadata
         if (!fs.existsSync(outputPath)) {
             try { fs.copyFileSync(inputPath, outputPath); } catch { }
@@ -185,9 +188,6 @@ async function embedFlacMetadata(
         // Cleanup temp files
         if (coverPath && fs.existsSync(coverPath)) {
             try { fs.unlinkSync(coverPath); } catch { }
-        }
-        if (lyricsPath && fs.existsSync(lyricsPath)) {
-            try { fs.unlinkSync(lyricsPath); } catch { }
         }
     }
 }

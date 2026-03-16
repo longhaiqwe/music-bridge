@@ -1,11 +1,11 @@
 import { MusicInfo, MusicSource } from '../types';
 import { getSafeFileName } from '../../metadata';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import util from 'util';
 import path from 'path';
 import fs from 'fs';
 
-const execAsync = util.promisify(exec);
+const execFileAsync = util.promisify(execFile);
 const TMP_DIR = path.join(process.cwd(), 'tmp_downloads');
 
 if (!fs.existsSync(TMP_DIR)) {
@@ -16,6 +16,19 @@ if (!fs.existsSync(TMP_DIR)) {
 import * as OpenCC from 'opencc-js';
 
 const converter = OpenCC.Converter({ from: 'cn', to: 'hk' });
+
+interface ScoredMusicInfo extends MusicInfo {
+    _debugScore?: number;
+}
+
+interface BrowserCookie {
+    domain: string;
+    path: string;
+    secure?: boolean;
+    expirationDate?: number;
+    name: string;
+    value: string;
+}
 
 export class YoutubeSource implements MusicSource {
     name = 'youtube';
@@ -124,19 +137,19 @@ export class YoutubeSource implements MusicSource {
      *   2. cookies.txt 静态文件（设置 YOUTUBE_COOKIES_FROM_BROWSER=false 时启用）
      *   3. YOUTUBE_COOKIES 环境变量（JSON 格式）
      */
-    private async buildCookieArgs(): Promise<{ args: string; tempFile: string | null }> {
+    private async buildCookieArgs(): Promise<{ args: string[]; tempFile: string | null }> {
         // 默认优先用浏览器 cookies，除非明确禁用
         const useFromBrowser = process.env.YOUTUBE_COOKIES_FROM_BROWSER !== 'false';
         if (useFromBrowser) {
             const browser = process.env.YOUTUBE_COOKIES_BROWSER || 'chrome';
             console.log(`[YoutubeSource] Using cookies from browser: ${browser}`);
-            return { args: `--cookies-from-browser ${browser}`, tempFile: null };
+            return { args: ['--cookies-from-browser', browser], tempFile: null };
         }
 
         // 回退 1: cookies.txt 静态文件
         const staticCookieFile = path.join(process.cwd(), 'cookies.txt');
         if (fs.existsSync(staticCookieFile)) {
-            return { args: `--cookies "${staticCookieFile}"`, tempFile: null };
+            return { args: ['--cookies', staticCookieFile], tempFile: null };
         }
 
         // 回退 2: YOUTUBE_COOKIES 环境变量（JSON 格式）
@@ -147,13 +160,13 @@ export class YoutubeSource implements MusicSource {
                 const tempFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
                 const netscapeCookies = this.convertCookiesToNetscape(cookies);
                 fs.writeFileSync(tempFile, netscapeCookies);
-                return { args: `--cookies "${tempFile}"`, tempFile };
+                return { args: ['--cookies', tempFile], tempFile };
             } catch (e) {
                 console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
             }
         }
 
-        return { args: '', tempFile: null };
+        return { args: [], tempFile: null };
     }
 
     async search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]> {
@@ -161,18 +174,10 @@ export class YoutubeSource implements MusicSource {
         try {
             try {
                 console.log(`[YoutubeSource] Searching for: ${keyword}`);
-                // Escape quotes to prevent shell issues
-                const safeKeyword = keyword.replace(/"/g, '\\"');
+                const args = ['--dump-json', '--no-playlist', `ytsearch10:${keyword}`, ...cookieArgs];
+                const { stdout } = await this.execWithRetry('yt-dlp', args);
 
-                // Increase limit slightly to give us more candidates to score
-                let command = `yt-dlp --dump-json --no-playlist "ytsearch10:${safeKeyword}"`;
-                if (cookieArgs) {
-                    command += ` ${cookieArgs}`;
-                }
-
-                const { stdout } = await this.execWithRetry(command);
-
-                const results: MusicInfo[] = [];
+                const results: ScoredMusicInfo[] = [];
                 const lines = stdout.trim().split('\n');
 
                 for (const line of lines) {
@@ -199,18 +204,14 @@ export class YoutubeSource implements MusicSource {
                 results.sort((a, b) => {
                     const scoreA = this.calculateScore(a, keyword, options);
                     const scoreB = this.calculateScore(b, keyword, options);
-                    // Add score to debug
-                    // @ts-ignore
                     a._debugScore = scoreA;
-                    // @ts-ignore
                     b._debugScore = scoreB;
                     return scoreB - scoreA;
                 });
 
                 // Log top 3 for debugging
                 console.log('[YoutubeSource] Top 3 results:', results.slice(0, 3).map(r =>
-                    // @ts-ignore
-                    `${(r.name.length > 30 ? r.name.substring(0, 30) + '...' : r.name)} (${Math.round(r._debugScore)}) [${r.duration}s]`
+                    `${(r.name.length > 30 ? r.name.substring(0, 30) + '...' : r.name)} (${Math.round(r._debugScore ?? 0)}) [${r.duration}s]`
                 ));
 
                 return results;
@@ -254,14 +255,17 @@ export class YoutubeSource implements MusicSource {
                 const safeBaseName = path.basename(targetFilename, '.flac');
                 const outputTemplate = path.join(TMP_DIR, `${safeBaseName}.%(ext)s`);
 
-                // Construct command - use flac for lossless quality
-                let cmd = `yt-dlp -x --audio-format flac -o "${outputTemplate}" "https://www.youtube.com/watch?v=${info.originalId}"`;
-                if (cookieArgs) {
-                    cmd += ` ${cookieArgs}`;
-                }
+                const args = [
+                    '-x',
+                    '--audio-format',
+                    'flac',
+                    '-o',
+                    outputTemplate,
+                    `https://www.youtube.com/watch?v=${info.originalId}`,
+                    ...cookieArgs
+                ];
 
-                // Download best audio and convert to mp3
-                await this.execWithRetry(cmd);
+                await this.execWithRetry('yt-dlp', args);
 
                 if (fs.existsSync(filePath)) {
                     const stats = fs.statSync(filePath);
@@ -293,7 +297,7 @@ export class YoutubeSource implements MusicSource {
         }
     }
 
-    private convertCookiesToNetscape(cookies: any[]): string {
+    private convertCookiesToNetscape(cookies: BrowserCookie[]): string {
         let output = '# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n';
 
         for (const cookie of cookies) {
@@ -310,13 +314,22 @@ export class YoutubeSource implements MusicSource {
         return output;
     }
 
-    private async execWithRetry(command: string, retries = 3, delay = 1000): Promise<{ stdout: string, stderr: string }> {
+    private async execWithRetry(
+        file: string,
+        args: string[],
+        retries = 3,
+        delay = 1000
+    ): Promise<{ stdout: string; stderr: string }> {
         for (let i = 0; i < retries; i++) {
             try {
-                return await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
+                const result = await execFileAsync(file, args, { maxBuffer: 10 * 1024 * 1024 });
+                return {
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                };
             } catch (e) {
                 if (i === retries - 1) throw e;
-                console.warn(`Command failed, retrying (${i + 1}/${retries}): ${command}`);
+                console.warn(`Command failed, retrying (${i + 1}/${retries}): ${file} ${args.join(' ')}`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
