@@ -30,6 +30,8 @@ interface UploadResult extends Record<string, unknown> {
     };
 }
 
+const QQ_LYRIC_BATCH_SIZE = 2;
+
 // Helper to download file
 async function downloadFile(url: string, dest: string) {
     const res = await fetch(url);
@@ -41,6 +43,30 @@ async function downloadFile(url: string, dest: string) {
 const TMP_DIR = path.join(process.cwd(), 'tmp_downloads');
 if (!fs.existsSync(TMP_DIR)) {
     fs.mkdirSync(TMP_DIR, { recursive: true });
+}
+
+async function findLyricsMatchInBatches<T>(
+    items: T[],
+    getLyrics: (item: T) => Promise<string>,
+    batchSize = QQ_LYRIC_BATCH_SIZE,
+    minLength = 200
+): Promise<{ item: T; lyrics: string } | null> {
+    for (let start = 0; start < items.length; start += batchSize) {
+        const batch = items.slice(start, start + batchSize);
+        const batchResults = await Promise.all(
+            batch.map(async (item) => ({
+                item,
+                lyrics: await getLyrics(item)
+            }))
+        );
+
+        const match = batchResults.find((result) => result.lyrics.length > minLength);
+        if (match) {
+            return match;
+        }
+    }
+
+    return null;
 }
 
 export async function processSongSync(
@@ -76,6 +102,7 @@ export async function processSongSync(
 
             const isLive = (name: string) => /live|concert|现场|演唱会/i.test(name);
             const isTargetLive = isLive(baseInfo.name);
+            const prioritizedCandidates: SongInfo[] = [];
             let robustCandidate: SongInfo | null = null;
             let finalMatch: SongInfo | null = null;
 
@@ -94,14 +121,18 @@ export async function processSongSync(
                     }
                 }
 
-                // Check Lyrics
-                const lrc = await qqMusicService.getLyric(qs.id);
-                if (lrc && lrc.length > 200) {
-                    lyrics = lrc;
-                    finalMatch = qs;
-                    log(`[Strategy] Locked target via lyrics: ${qs.name}`);
-                    break;
-                }
+                prioritizedCandidates.push(qs);
+            }
+
+            const primaryMatch = await findLyricsMatchInBatches(
+                prioritizedCandidates,
+                (song) => qqMusicService.getLyric(song.id)
+            );
+
+            if (primaryMatch) {
+                lyrics = primaryMatch.lyrics;
+                finalMatch = primaryMatch.item;
+                log(`[Strategy] Locked target via lyrics: ${primaryMatch.item.name}`);
             }
 
             if (!finalMatch && robustCandidate) {
@@ -249,16 +280,28 @@ export async function processSongSync(
                     if (lyrics && lyrics.length < 200) {
                         log(`[Lyrics] NetEase lyrics short (${lyrics.length}), retrying 'Original'...`);
                         const retryQueries = [`${searchQ} 原版`, `${searchQ} 官方`];
-                        for (const q of retryQueries) {
-                            const retryRes = await neteaseService.searchSong(q, neteaseCookie);
-                            if (retryRes?.[0]) {
-                                const l = await neteaseService.getLyric(retryRes[0].id, neteaseCookie);
-                                if (l && l.length > lyrics.length) {
-                                    lyrics = l;
-                                    log(`[Lyrics] Found better lyrics (${l.length} chars)`);
-                                    break;
+
+                        const retryResults = await Promise.all(
+                            retryQueries.map(async (q) => {
+                                const retryRes = await neteaseService.searchSong(q, neteaseCookie);
+                                if (!retryRes?.[0]) {
+                                    return null;
                                 }
-                            }
+
+                                const retryLyrics = await neteaseService.getLyric(retryRes[0].id, neteaseCookie);
+                                return retryLyrics
+                                    ? { query: q, lyrics: retryLyrics }
+                                    : null;
+                            })
+                        );
+
+                        const betterLyrics = retryResults
+                            .filter((result): result is { query: string; lyrics: string } => Boolean(result))
+                            .sort((a, b) => b.lyrics.length - a.lyrics.length)[0];
+
+                        if (betterLyrics && betterLyrics.lyrics.length > lyrics.length) {
+                            lyrics = betterLyrics.lyrics;
+                            log(`[Lyrics] Found better lyrics via "${betterLyrics.query}" (${betterLyrics.lyrics.length} chars)`);
                         }
                     }
                 }

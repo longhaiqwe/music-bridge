@@ -8,6 +8,18 @@ interface ArtistSyncContext {
   onProgress?: (progress: { current: number; total: number; message: string; songName?: string }) => void;
 }
 
+const DEFAULT_ARTIST_SYNC_CONCURRENCY = 2;
+const MAX_ARTIST_SYNC_CONCURRENCY = 3;
+
+function getArtistSyncConcurrency() {
+  const rawValue = Number(process.env.ARTIST_SYNC_CONCURRENCY || DEFAULT_ARTIST_SYNC_CONCURRENCY);
+  if (!Number.isFinite(rawValue)) {
+    return DEFAULT_ARTIST_SYNC_CONCURRENCY;
+  }
+
+  return Math.min(MAX_ARTIST_SYNC_CONCURRENCY, Math.max(1, Math.floor(rawValue)));
+}
+
 function mapSongToMusicInfo(song: ArtistSyncSong, fallbackArtistName: string) {
   const artistsList = song.ar || song.artists || [];
   const albumObj = song.al || song.album || {};
@@ -47,6 +59,14 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '同步失败';
 }
 
+function withConcurrencyLabel(message: string, activeCount: number) {
+  if (activeCount <= 1) {
+    return message;
+  }
+
+  return `${message} (并行 ${activeCount} 首)`;
+}
+
 export async function runArtistSync(
   input: ArtistSyncInput,
   context: ArtistSyncContext = {}
@@ -68,25 +88,33 @@ export async function runArtistSync(
     failedSongs: [],
     playlistId: null,
   };
-  const cloudIds: Array<string | number> = [];
   const total = targetSongs.length;
+  const concurrency = Math.min(getArtistSyncConcurrency(), Math.max(total, 1));
+  const cloudIdsByIndex: Array<string | number | null> = new Array(total).fill(null);
+  const failedSongsByIndex: Array<string | null> = new Array(total).fill(null);
+  const activeSongs = new Map<number, string>();
+  let completedCount = 0;
+  let nextIndex = 0;
 
-  for (let index = 0; index < targetSongs.length; index += 1) {
+  const emitProgress = (message: string, songName?: string) => {
+    updateProgress({
+      current: completedCount,
+      total,
+      message: withConcurrencyLabel(message, activeSongs.size),
+      songName,
+    });
+  };
+
+  if (total === 0) {
+    emitProgress('未找到可同步歌曲');
+    return results;
+  }
+
+  const syncOneSong = async (index: number) => {
     const song = targetSongs[index];
     const baseInfo = mapSongToMusicInfo(song, input.artistName);
-    const current = index + 1;
-
-    updateProgress({
-      current,
-      total,
-      message: '正在搜索资源...',
-      songName: baseInfo.name,
-    });
-    emit({
-      type: 'song.started',
-      message: `开始处理 ${baseInfo.name}`,
-      data: { current, total, songName: baseInfo.name },
-    });
+    activeSongs.set(index, baseInfo.name);
+    emitProgress('正在搜索资源...', baseInfo.name);
 
     try {
       const uploadRes = await runSongSync(
@@ -97,28 +125,47 @@ export async function runArtistSync(
         {
           onEvent: (event) => {
             emit(event);
-            updateProgress({
-              current,
-              total,
-              message: mapEventMessage(event),
-              songName: baseInfo.name,
-            });
+            emitProgress(mapEventMessage(event), baseInfo.name);
           },
         }
       );
 
       if (uploadRes.songId) {
-        cloudIds.push(uploadRes.songId);
-        results.success += 1;
+        cloudIdsByIndex[index] = uploadRes.songId;
       } else {
-        results.failed += 1;
-        results.failedSongs.push(`${baseInfo.name} (Upload ID missing)`);
+        failedSongsByIndex[index] = `${baseInfo.name} (Upload ID missing)`;
       }
     } catch (error: unknown) {
-      results.failed += 1;
-      results.failedSongs.push(`${baseInfo.name} (${getErrorMessage(error)})`);
+      failedSongsByIndex[index] = `${baseInfo.name} (${getErrorMessage(error)})`;
+    } finally {
+      activeSongs.delete(index);
+      completedCount += 1;
+
+      const nextSongName = activeSongs.values().next().value as string | undefined;
+      emitProgress(completedCount === total ? '同步完成' : '正在处理其余歌曲...', nextSongName);
     }
-  }
+  };
+
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+
+      if (index >= total) {
+        return;
+      }
+
+      await syncOneSong(index);
+    }
+  };
+
+  emitProgress(`开始同步，共 ${total} 首`, mapSongToMusicInfo(targetSongs[0], input.artistName).name);
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+  const cloudIds = cloudIdsByIndex.filter((songId): songId is string | number => songId !== null);
+  results.success = cloudIds.length;
+  results.failedSongs = failedSongsByIndex.filter((song): song is string => Boolean(song));
+  results.failed = results.failedSongs.length;
 
   if (input.createPlaylist && cloudIds.length > 0) {
     try {
