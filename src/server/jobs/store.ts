@@ -57,15 +57,27 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 }
 
 class SqliteJobStore {
-  private db: DatabaseSync;
+  private db: DatabaseSync | null = null;
 
-  constructor() {
+  private getDb() {
+    if (this.db) {
+      return this.db;
+    }
+
     this.db = new DatabaseSync(getDbPath());
+    this.db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
+      PRAGMA foreign_keys = ON;
+    `);
     this.init();
+    return this.db;
   }
 
   private init() {
-    this.db.exec(`
+    const db = this.getDb();
+
+    db.exec(`
       CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
@@ -96,7 +108,7 @@ class SqliteJobStore {
 
     const staleBefore = new Date(Date.now() - STALE_JOB_TIMEOUT_MS).toISOString();
 
-    this.db
+    db
       .prepare(`
         UPDATE jobs
         SET status = 'failed',
@@ -137,11 +149,12 @@ class SqliteJobStore {
   }
 
   create<TInput>({ type, input }: CreateJobParams<TInput>): JobRecord<TInput> {
+    const db = this.getDb();
     const id = `job_${randomUUID()}`;
     const now = new Date().toISOString();
     const progress = createInitialProgress();
 
-    this.db
+    db
       .prepare(`
         INSERT INTO jobs (id, type, status, input_json, progress_json, created_at, updated_at)
         VALUES (?, ?, 'queued', ?, ?, ?, ?)
@@ -161,12 +174,12 @@ class SqliteJobStore {
   }
 
   get<TInput = unknown, TResult = unknown>(id: string): JobRecord<TInput, TResult> | undefined {
-    const row = this.db.prepare('SELECT * FROM jobs WHERE id = ?').get(id) as JobRow | undefined;
+    const row = this.getDb().prepare('SELECT * FROM jobs WHERE id = ?').get(id) as JobRow | undefined;
     return this.mapJobRow<TInput, TResult>(row);
   }
 
   list(limit = 20) {
-    const rows = this.db
+    const rows = this.getDb()
       .prepare('SELECT * FROM jobs ORDER BY updated_at DESC LIMIT ?')
       .all(limit) as JobRow[];
 
@@ -176,7 +189,7 @@ class SqliteJobStore {
   }
 
   updateStatus(id: string, status: JobStatus, error?: string) {
-    this.db
+    this.getDb()
       .prepare(`
         UPDATE jobs
         SET status = ?, error = COALESCE(?, error), updated_at = ?
@@ -189,7 +202,7 @@ class SqliteJobStore {
     const job = this.get(id);
     if (!job) return;
 
-    this.db
+    this.getDb()
       .prepare(`
         UPDATE jobs
         SET progress_json = ?, updated_at = ?
@@ -199,13 +212,14 @@ class SqliteJobStore {
   }
 
   appendEvent(id: string, event: Omit<JobEvent, 'seq' | 'at'>) {
-    const nextSeqRow = this.db
+    const db = this.getDb();
+    const nextSeqRow = db
       .prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM job_events WHERE job_id = ?')
       .get(id) as { seq: number };
     const seq = nextSeqRow.seq + 1;
     const at = new Date().toISOString();
 
-    this.db
+    db
       .prepare(`
         INSERT INTO job_events (job_id, seq, at, type, message, progress_json, data_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -220,11 +234,11 @@ class SqliteJobStore {
         event.data ? JSON.stringify(event.data) : null
       );
 
-    this.db.prepare('UPDATE jobs SET updated_at = ? WHERE id = ?').run(at, id);
+    db.prepare('UPDATE jobs SET updated_at = ? WHERE id = ?').run(at, id);
   }
 
   complete<TResult>(id: string, result: TResult) {
-    this.db
+    this.getDb()
       .prepare(`
         UPDATE jobs
         SET result_json = ?, status = 'succeeded', updated_at = ?
@@ -234,7 +248,7 @@ class SqliteJobStore {
   }
 
   fail(id: string, error: string) {
-    this.db
+    this.getDb()
       .prepare(`
         UPDATE jobs
         SET error = ?, status = 'failed', updated_at = ?
@@ -244,7 +258,7 @@ class SqliteJobStore {
   }
 
   listEvents(id: string, since = 0) {
-    const rows = this.db
+    const rows = this.getDb()
       .prepare(`
         SELECT seq, at, type, message, progress_json, data_json
         FROM job_events

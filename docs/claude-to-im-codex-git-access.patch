@@ -1,0 +1,72 @@
+diff --git a/src/codex-provider.ts b/src/codex-provider.ts
+index 8d4f4d1..c176aba 100644
+--- a/src/codex-provider.ts
++++ b/src/codex-provider.ts
+@@ -49,6 +49,27 @@ function shouldPassModelToCodex(): boolean {
+   return process.env.CTI_CODEX_PASS_MODEL === 'true';
+ }
+ 
++function shouldSkipGitRepoCheck(): boolean {
++  return process.env.CTI_CODEX_SKIP_GIT_REPO_CHECK === 'true';
++}
++
++function readCodexConfigOverride(): Record<string, unknown> | undefined {
++  const raw = process.env.CTI_CODEX_CONFIG_JSON?.trim();
++  if (!raw) return undefined;
++
++  try {
++    const parsed = JSON.parse(raw);
++    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
++      return parsed as Record<string, unknown>;
++    }
++    console.warn('[codex-provider] CTI_CODEX_CONFIG_JSON must be a JSON object; ignoring override');
++  } catch (error) {
++    const message = error instanceof Error ? error.message : String(error);
++    console.warn(`[codex-provider] Failed to parse CTI_CODEX_CONFIG_JSON: ${message}`);
++  }
++
++  return undefined;
++}
++
+ function looksLikeClaudeModel(model?: string): boolean {
+   return !!model && /^claude[-_]/i.test(model);
+ }
+@@ -89,10 +110,12 @@ export class CodexProvider implements LLMProvider {
+       || process.env.CODEX_API_KEY
+       || process.env.OPENAI_API_KEY
+       || undefined;
+     const baseUrl = process.env.CTI_CODEX_BASE_URL || undefined;
++    const config = readCodexConfigOverride();
+ 
+     const CodexClass = this.sdk.Codex;
+     this.codex = new CodexClass({
+       ...(apiKey ? { apiKey } : {}),
+       ...(baseUrl ? { baseUrl } : {}),
++      ...(config ? { config } : {}),
+     });
+ 
+     return { sdk: this.sdk, codex: this.codex };
+@@ -127,6 +150,7 @@ export class CodexProvider implements LLMProvider {
+             const threadOptions: Record<string, unknown> = {
+               ...(passModel && params.model ? { model: params.model } : {}),
+               ...(params.workingDirectory ? { workingDirectory: params.workingDirectory } : {}),
++              ...(shouldSkipGitRepoCheck() ? { skipGitRepoCheck: true } : {}),
+               approvalPolicy,
+             };
+diff --git a/config.env.example b/config.env.example
+index 4a895cc..045306c 100644
+--- a/config.env.example
++++ b/config.env.example
+@@ -33,6 +33,12 @@ CTI_DEFAULT_MODE=code
+ # Priority: CTI_CODEX_API_KEY > CODEX_API_KEY > OPENAI_API_KEY
+ # CTI_CODEX_API_KEY=
+ # CTI_CODEX_BASE_URL=
++# Pass raw Codex CLI config overrides through the SDK.
++# Example:
++# CTI_CODEX_CONFIG_JSON={"sandbox_workspace_write":{"writable_roots":["/path/to/your/repo/.git"],"network_access":false}}
++# CTI_CODEX_CONFIG_JSON=
++# Skip Codex's Git repository preflight for non-repo paths.
++# CTI_CODEX_SKIP_GIT_REPO_CHECK=false
+ 
+ # ── Telegram ──
+ CTI_TG_BOT_TOKEN=your-telegram-bot-token

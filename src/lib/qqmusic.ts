@@ -98,6 +98,26 @@ interface QQMusicSearchResponse {
 
 export class QQMusicService {
     private readonly searchEndpoint = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
+    private readonly apiTimeoutMs = 10000;
+
+    private async withTimeout<T>(promise: Promise<T>, operation: string, timeoutMs = this.apiTimeoutMs): Promise<T> {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        try {
+            return await Promise.race([
+                promise,
+                new Promise<T>((_, reject) => {
+                    timer = setTimeout(() => {
+                        reject(new Error(`${operation} timed out after ${timeoutMs}ms`));
+                    }, timeoutMs);
+                })
+            ]);
+        } finally {
+            if (timer) {
+                clearTimeout(timer);
+            }
+        }
+    }
 
     private normalizeText(value: string): string {
         return value.toLowerCase().replace(/\s+/g, '').trim();
@@ -332,11 +352,17 @@ export class QQMusicService {
 
     async getArtistHotSongsBySingerMid(singerMid: string, num = 20): Promise<SongInfo[]> {
         try {
-            const result = await qq.api('singer/songs', {
-                singermid: singerMid,
-                num,
-                page: 1
-            });
+            const result = await this.withTimeout(
+                qq.api('singer/songs', {
+                    singermid: singerMid,
+                    num,
+                    page: 1
+                }),
+                'QQ artist hot songs'
+            ) as {
+                data?: { list?: QQSongRecord[] };
+                list?: QQSongRecord[];
+            };
 
             const list = result?.data?.list || result?.list || [];
             return list.map((song: QQSongRecord) => this.normalizeSong(song));
@@ -358,9 +384,15 @@ export class QQMusicService {
     }
     async getLyric(songId: string | number): Promise<string> {
         try {
-            const res = await qq.api('lyric', {
-                songmid: songId // QQ Music uses songmid for lyrics usually
-            });
+            const res = await this.withTimeout(
+                qq.api('lyric', {
+                    songmid: songId // QQ Music uses songmid for lyrics usually
+                }),
+                `QQ lyric ${songId}`
+            ) as {
+                data?: { lyric?: string };
+                lyric?: string;
+            };
 
             if (res?.data?.lyric) return res.data.lyric;
             if (res?.lyric) return res.lyric;
