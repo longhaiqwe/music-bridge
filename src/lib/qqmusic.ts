@@ -21,6 +21,16 @@ export interface QQArtistInfo {
     picUrl: string;
 }
 
+export interface QQAlbumInfo {
+    id: string;
+    name: string;
+    artistName: string;
+    picUrl: string;
+    publishTime?: string;
+    songCount?: number;
+    artistId?: string;
+}
+
 interface QQSearchSinger {
     singerMID?: string;
     singerMid?: string;
@@ -53,6 +63,33 @@ interface QQSongAlbum {
     mid?: string | number;
     id?: string | number;
     name?: string;
+}
+
+interface QQAlbumSearchSinger {
+    id?: string | number;
+    mid?: string | number;
+    name?: string;
+    title?: string;
+}
+
+interface QQAlbumSearchRecord {
+    albumMID?: string;
+    albumMid?: string;
+    albummid?: string;
+    albumID?: string | number;
+    albumid?: string | number;
+    albumName?: string;
+    albumname?: string;
+    albumPic?: string;
+    albumpic?: string;
+    publicTime?: string;
+    publictime?: string;
+    singerMID?: string | number;
+    singermid?: string | number;
+    singerName?: string;
+    singername?: string;
+    singer_list?: QQAlbumSearchSinger[];
+    song_count?: number;
 }
 
 interface QQSongRecord {
@@ -176,6 +213,78 @@ export class QQMusicService {
 
                 if (aScore !== bScore) {
                     return aScore - bScore;
+                }
+
+                return a.name.localeCompare(b.name, 'zh-Hans-CN');
+            })
+            .slice(0, 10);
+    }
+
+    private normalizeAlbum(rawAlbum: QQAlbumSearchRecord): QQAlbumInfo | null {
+        const albumMid = String(
+            rawAlbum.albumMID ||
+            rawAlbum.albumMid ||
+            rawAlbum.albummid ||
+            ''
+        );
+        const name = String(rawAlbum.albumName || rawAlbum.albumname || '').trim();
+        const artistName = String(
+            rawAlbum.singerName ||
+            rawAlbum.singername ||
+            rawAlbum.singer_list?.map((artist) => artist.name || artist.title || '').filter(Boolean).join(', ') ||
+            ''
+        ).trim();
+
+        if (!albumMid || !name) {
+            return null;
+        }
+
+        return {
+            id: albumMid,
+            name,
+            artistName,
+            picUrl: albumMid
+                ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albumMid}.jpg`
+                : String(rawAlbum.albumPic || rawAlbum.albumpic || ''),
+            publishTime: rawAlbum.publicTime || rawAlbum.publictime || undefined,
+            songCount: typeof rawAlbum.song_count === 'number' ? rawAlbum.song_count : undefined,
+            artistId: String(
+                rawAlbum.singerMID ||
+                rawAlbum.singermid ||
+                rawAlbum.singer_list?.[0]?.mid ||
+                rawAlbum.singer_list?.[0]?.id ||
+                ''
+            ) || undefined,
+        };
+    }
+
+    private dedupeAndRankAlbums(keyword: string, albums: Array<QQAlbumInfo | null>): QQAlbumInfo[] {
+        const normalizedKeyword = this.normalizeText(keyword);
+        const unique = new Map<string, QQAlbumInfo>();
+
+        for (const album of albums) {
+            if (!album) {
+                continue;
+            }
+
+            if (!unique.has(album.id)) {
+                unique.set(album.id, album);
+            }
+        }
+
+        return [...unique.values()]
+            .sort((a, b) => {
+                const aName = this.normalizeText(a.name);
+                const bName = this.normalizeText(b.name);
+                const aScore = aName === normalizedKeyword ? 0 : (aName.includes(normalizedKeyword) || normalizedKeyword.includes(aName) ? 1 : 2);
+                const bScore = bName === normalizedKeyword ? 0 : (bName.includes(normalizedKeyword) || normalizedKeyword.includes(bName) ? 1 : 2);
+
+                if (aScore !== bScore) {
+                    return aScore - bScore;
+                }
+
+                if (a.publishTime && b.publishTime && a.publishTime !== b.publishTime) {
+                    return b.publishTime.localeCompare(a.publishTime);
                 }
 
                 return a.name.localeCompare(b.name, 'zh-Hans-CN');
@@ -337,6 +446,28 @@ export class QQMusicService {
         }
     }
 
+    async searchAlbums(keyword: string): Promise<QQAlbumInfo[]> {
+        try {
+            const result = await this.withTimeout(
+                qq.api('search', {
+                    key: keyword,
+                    t: 8,
+                    pageNo: 1,
+                    pageSize: 10,
+                }),
+                'QQ album search'
+            ) as { list?: QQAlbumSearchRecord[] };
+
+            return this.dedupeAndRankAlbums(
+                keyword,
+                (result.list || []).map((album) => this.normalizeAlbum(album))
+            );
+        } catch (error) {
+            console.error('QQ Album Search failed:', error);
+            return [];
+        }
+    }
+
     // Search for an artist and return their hot songs
     async getArtistHotSongs(artistName: string): Promise<SongInfo[]> {
         const artists = await this.searchArtists(artistName);
@@ -368,6 +499,22 @@ export class QQMusicService {
             return list.map((song: QQSongRecord) => this.normalizeSong(song));
         } catch (error) {
             console.error('QQ Artist Hot Songs failed:', error);
+            return [];
+        }
+    }
+
+    async getAlbumSongsByAlbumMid(albumMid: string): Promise<SongInfo[]> {
+        try {
+            const result = await this.withTimeout(
+                qq.api('album/songs', {
+                    albummid: albumMid,
+                }),
+                'QQ album songs'
+            ) as { list?: QQSongRecord[] };
+
+            return (result.list || []).map((song: QQSongRecord) => this.normalizeSong(song));
+        } catch (error) {
+            console.error('QQ Album Songs failed:', error);
             return [];
         }
     }

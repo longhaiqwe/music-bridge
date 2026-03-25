@@ -10,6 +10,7 @@ import { createWriteStream } from 'fs';
 import { SongSyncEvent } from '@/core/types';
 import { SongInfo } from '@/lib/qqmusic';
 import { Readable } from 'stream';
+import { debugLog, debugWarn } from '@/lib/logging';
 
 // Define Logger Type
 export type Logger = (msg: string) => void;
@@ -73,7 +74,7 @@ export async function processSongSync(
     baseInfo: MusicInfo,
     options: SyncOptions = {}
 ): Promise<UploadResult> {
-    const log = options.onLog || console.log;
+    const log = options.onLog || debugLog;
     const emit = options.onEvent || (() => undefined);
     const neteaseCookie = options.neteaseCookie;
     let downloadInfo: MusicInfo = { ...baseInfo };
@@ -163,7 +164,7 @@ export async function processSongSync(
             }
 
         } catch (error: unknown) {
-            console.warn(`[Strategy] QQ Pre-fetch failed:`, error instanceof Error ? error.message : String(error));
+            debugWarn(`[Strategy] QQ Pre-fetch failed:`, error instanceof Error ? error.message : String(error));
         }
 
         // ---------------------------------------------------------

@@ -12,11 +12,11 @@ export async function GET(request: Request) {
 
     try {
         debugLog('==================================================');
-        debugLog(`[Artist Search] Query: ${q}`);
-        const artists = await qqMusicService.searchArtists(q);
-        debugLog(`[Artist Search] Found ${artists.length} artists`);
+        debugLog(`[Album Search] Query: ${q}`);
+        const albums = await qqMusicService.searchAlbums(q);
+        debugLog(`[Album Search] Found ${albums.length} albums`);
         debugLog('==================================================');
-        return NextResponse.json(artists);
+        return NextResponse.json(albums);
     } catch (e) {
         console.error(e);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

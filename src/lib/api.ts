@@ -56,6 +56,17 @@ export const api = {
         }
     },
 
+    album: {
+        search: async (q: string) => {
+            const res = await customFetch(`/api/album/search?q=${encodeURIComponent(q)}`);
+            return res.json();
+        },
+        getSongs: async (id: number | string) => {
+            const res = await customFetch(`/api/album/songs?id=${id}`);
+            return res.json();
+        }
+    },
+
     jobs: {
         create: async (type: 'sync_song' | 'sync_artist', input: Record<string, unknown>) => {
             const res = await customFetch('/api/jobs', {

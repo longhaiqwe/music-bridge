@@ -1,37 +1,35 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, Music, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft, X } from 'lucide-react';
-import { fetch as customFetch } from '@/lib/api';
+import { Loader2, Disc3, CheckCircle2, RotateCcw, AlertCircle, ArrowLeft, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ArtistSyncResult, ArtistSyncSong } from '@/core/types';
 
 const JOB_POLL_INTERVAL_MS = 2500;
 
-interface Artist {
+interface Album {
     id: string;
     name: string;
+    artistName: string;
     picUrl: string;
+    publishTime?: string;
+    songCount?: number;
 }
 
-export function ArtistSync() {
+export function AlbumSync() {
     const [keyword, setKeyword] = useState('');
     const [loading, setLoading] = useState(false);
-    const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
-    const [syncCount, setSyncCount] = useState<number | ''>(10);
+    const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
+    const [syncCount, setSyncCount] = useState<number | ''>('');
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [toSyncSongs, setToSyncSongs] = useState<ArtistSyncSong[]>([]);
     const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
-    const [progress, setProgress] = useState({ current: 0, total: 10 });
+    const [progress, setProgress] = useState({ current: 0, total: 0 });
     const [currentSong, setCurrentSong] = useState('');
     const [statusMessage, setStatusMessage] = useState('初始化中...');
     const [createPlaylist, setCreatePlaylist] = useState(true);
-
-    // Cache all songs to support removal/replenishment
     const [allCachedSongs, setAllCachedSongs] = useState<ArtistSyncSong[]>([]);
     const [ignoredSongIds, setIgnoredSongIds] = useState<Set<string>>(new Set());
-
-    // New state for detailed sync result
     const [syncResult, setSyncResult] = useState<ArtistSyncResult | null>(null);
     const [jobId, setJobId] = useState<string | null>(null);
 
@@ -41,23 +39,21 @@ export function ArtistSync() {
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!keyword) return;
+        if (!keyword.trim()) return;
         setLoading(true);
-        setSelectedArtist(null);
+        setSelectedAlbum(null);
         setToSyncSongs([]);
         setAllCachedSongs([]);
         setIgnoredSongIds(new Set());
+        setSyncCount('');
         try {
-            const res = await customFetch(`/api/artist/search?q=${encodeURIComponent(keyword)}`);
-            const data = await res.json();
+            const data = await api.album.search(keyword);
             if (Array.isArray(data) && data.length > 0) {
-                // Auto-select the first artist
-                const firstArtist = data[0] as Artist;
-                setSelectedArtist(firstArtist);
-
-                // Fetching is now handled by useEffect
+                const firstAlbum = data[0] as Album;
+                setSelectedAlbum(firstAlbum);
+                setSyncCount(firstAlbum.songCount || '');
             } else {
-                alert('未找到相关歌手');
+                alert('未找到相关专辑');
             }
         } catch (error: unknown) {
             console.error(error);
@@ -67,18 +63,21 @@ export function ArtistSync() {
         }
     };
 
-    // Re-fetch songs if syncCount changes and we have an artist
-    // 1. Fetch songs when selectedArtist changes
     useEffect(() => {
-        if (!selectedArtist) return;
+        if (!selectedAlbum) return;
 
         const fetchSongs = async () => {
             setLoadingPreview(true);
             try {
-                const res = await customFetch(`/api/artist/top-songs?id=${selectedArtist.id}`);
-                const data = await res.json();
+                const data = await api.album.getSongs(selectedAlbum.id);
                 if (Array.isArray(data)) {
                     setAllCachedSongs(data as ArtistSyncSong[]);
+                    setSyncCount((prev) => {
+                        if (typeof prev !== 'number' || prev <= 0 || prev > data.length) {
+                            return data.length;
+                        }
+                        return prev;
+                    });
                 }
             } catch (error: unknown) {
                 console.error(error);
@@ -88,9 +87,8 @@ export function ArtistSync() {
         };
 
         fetchSongs();
-    }, [selectedArtist]);
+    }, [selectedAlbum]);
 
-    // 2. Update toSyncSongs when cache, ignore list, or count changes
     useEffect(() => {
         if (allCachedSongs.length === 0) {
             setToSyncSongs([]);
@@ -98,9 +96,8 @@ export function ArtistSync() {
         }
 
         const filtered = allCachedSongs.filter(song => !ignoredSongIds.has(String(song.id)));
-        const limit = typeof syncCount === 'number' ? syncCount : 0;
+        const limit = typeof syncCount === 'number' ? syncCount : filtered.length;
         setToSyncSongs(filtered.slice(0, limit));
-
     }, [allCachedSongs, ignoredSongIds, syncCount]);
 
     const handleRemoveSong = (songId: number | string) => {
@@ -109,7 +106,6 @@ export function ArtistSync() {
         setIgnoredSongIds(newSet);
     };
 
-    // Duplicate detection logic (Name + Artists based)
     const duplicateInfo = (() => {
         const seenKeys = new Set<string>();
         let duplicatesCount = 0;
@@ -131,7 +127,6 @@ export function ArtistSync() {
         const seenKeys = new Set<string>();
         const songsToRemove: string[] = [];
 
-        // Iterate and mark duplicates for removal (add to ignored list)
         toSyncSongs.forEach(song => {
             const name = song.name.trim();
             const artists = getArtistNames(song);
@@ -151,21 +146,20 @@ export function ArtistSync() {
         }
     };
 
-
     const handleStartSync = async () => {
-        if (!selectedArtist) return;
+        if (!selectedAlbum) return;
 
         setSyncStatus('syncing');
-        setSyncResult(null); // Reset result
+        setSyncResult(null);
         setProgress({ current: 0, total: toSyncSongs.length || Number(syncCount) });
         setStatusMessage('准备开始...');
         setCurrentSong('');
 
         try {
             const job = await api.jobs.create('sync_artist', {
-                artistId: selectedArtist.id,
-                artistName: selectedArtist.name,
-                count: Number(syncCount),
+                artistId: selectedAlbum.id,
+                artistName: selectedAlbum.name,
+                count: typeof syncCount === 'number' ? syncCount : toSyncSongs.length,
                 songs: toSyncSongs,
                 createPlaylist
             });
@@ -228,16 +222,12 @@ export function ArtistSync() {
         };
     }, [jobId, syncStatus]);
 
-
-
     return (
         <div className="w-full max-w-5xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
-            {/* Top Controls: Singer & Quantity */}
             <div className="flex flex-col md:flex-row gap-4 items-end">
-                {/* Singer Input */}
                 <div className="flex-1 w-full">
                     <label className="block text-sm font-bold text-gray-700 mb-2">
-                        歌手
+                        专辑
                     </label>
                     <div className="flex gap-2">
                         <input
@@ -245,7 +235,7 @@ export function ArtistSync() {
                             value={keyword}
                             onChange={(e) => setKeyword(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSearch(e)}
-                            placeholder="输入歌手名字 (如: 周杰伦)"
+                            placeholder="输入专辑名 (如: 十一月的萧邦)"
                             className="flex-1 p-2 border rounded shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
                         />
                         <button
@@ -258,7 +248,6 @@ export function ArtistSync() {
                     </div>
                 </div>
 
-                {/* Quantity Input */}
                 <div className="w-full md:w-48">
                     <label className="block text-sm font-bold text-gray-700 mb-2">
                         数量
@@ -283,36 +272,34 @@ export function ArtistSync() {
                 </div>
             </div>
 
-            {/* Main Display Area - 根据状态动态调整最小高度 */}
-            <div className={`relative w-full border-2 md:border-4 border-gray-100 rounded-xl md:rounded-2xl bg-white shadow-sm p-3 md:p-6 overflow-hidden flex flex-col ${!selectedArtist && syncStatus === 'idle' ? 'min-h-[180px]' : 'min-h-[400px] md:min-h-[500px]'}`}>
+            <div className={`relative w-full border-2 md:border-4 border-gray-100 rounded-xl md:rounded-2xl bg-white shadow-sm p-3 md:p-6 overflow-hidden flex flex-col ${!selectedAlbum && syncStatus === 'idle' ? 'min-h-[180px]' : 'min-h-[400px] md:min-h-[500px]'}`}>
 
-                {/* State 1: Empty / Initial */}
-                {!selectedArtist && syncStatus === 'idle' && (
+                {!selectedAlbum && syncStatus === 'idle' && (
                     <div className="flex-1 flex flex-col items-center justify-center text-gray-300 py-8">
-                        <Music className="w-12 h-12 md:w-16 md:h-16 mb-3 opacity-20" />
-                        <p className="text-sm md:text-base text-gray-500 text-center px-4">请在上方搜索歌手，系统将自动展示热门歌曲</p>
+                        <Disc3 className="w-12 h-12 md:w-16 md:h-16 mb-3 opacity-20" />
+                        <p className="text-sm md:text-base text-gray-500 text-center px-4">请在上方搜索专辑，系统将自动展示专辑曲目</p>
                     </div>
                 )}
 
-                {/* State 2: Song Preview & Sync Confirm */}
-                {selectedArtist && syncStatus === 'idle' && (
+                {selectedAlbum && syncStatus === 'idle' && (
                     <div className="flex-1 flex flex-col animate-fade-in">
-                        {/* 移动端响应式头部布局 */}
                         <div className="flex flex-col gap-4 mb-4">
-                            {/* 第一行：歌手信息 */}
                             <div className="flex items-center gap-3">
-                                <img src={selectedArtist.picUrl} alt={selectedArtist.name} className="w-12 h-12 md:w-10 md:h-10 rounded-full object-cover shadow-sm flex-shrink-0" />
-                                <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2 min-w-0">
+                                <img src={selectedAlbum.picUrl} alt={selectedAlbum.name} className="w-12 h-12 md:w-10 md:h-10 rounded-xl object-cover shadow-sm flex-shrink-0" />
+                                <div className="flex flex-col gap-1 min-w-0">
                                     <h3 className="text-lg md:text-xl font-bold text-gray-900 truncate">
-                                        {selectedArtist.name}
+                                        {selectedAlbum.name}
                                     </h3>
-                                    <span className="text-xs md:text-sm font-normal text-gray-500 bg-gray-100 px-2 md:px-3 py-0.5 md:py-1 rounded-full w-fit">
-                                        将同步 {toSyncSongs.length} 首歌曲
-                                    </span>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm text-gray-500">
+                                        <span>{selectedAlbum.artistName || '未知歌手'}</span>
+                                        {selectedAlbum.publishTime && <span>• {selectedAlbum.publishTime}</span>}
+                                        <span className="bg-gray-100 px-2 md:px-3 py-0.5 md:py-1 rounded-full text-gray-600">
+                                            将同步 {toSyncSongs.length} 首歌曲
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* 重复歌曲警告 - 独立一行 */}
                             {duplicateInfo.hasDuplicates && (
                                 <div className="flex flex-wrap items-center gap-2 md:gap-3 bg-yellow-50 text-yellow-700 px-3 md:px-4 py-2 rounded-lg border border-yellow-100 animate-fade-in">
                                     <AlertCircle className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0" />
@@ -328,24 +315,21 @@ export function ArtistSync() {
                                 </div>
                             )}
 
-                            {/* 第二行：操作区域 */}
                             <div className="flex items-center justify-between gap-3">
-                                {/* 创建歌单选项 */}
-                                <label htmlFor="createPlaylist" className="flex items-center gap-2 cursor-pointer select-none">
+                                <label htmlFor="albumCreatePlaylist" className="flex items-center gap-2 cursor-pointer select-none">
                                     <input
                                         type="checkbox"
-                                        id="createPlaylist"
+                                        id="albumCreatePlaylist"
                                         checked={createPlaylist}
                                         onChange={(e) => setCreatePlaylist(e.target.checked)}
                                         className="w-5 h-5 md:w-5 md:h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
                                     />
                                     <div className="text-sm font-medium text-gray-700">
                                         创建歌单
-                                        <span className="text-xs text-gray-400 block font-normal">如失败请取消勾选</span>
+                                        <span className="text-xs text-gray-400 block font-normal">使用专辑名创建歌单</span>
                                     </div>
                                 </label>
 
-                                {/* 开始同步按钮 */}
                                 <button
                                     onClick={handleStartSync}
                                     className="px-5 md:px-8 py-2.5 md:py-2 bg-green-500 text-white font-bold rounded-lg shadow hover:bg-green-600 transition-colors flex items-center gap-2 active:scale-95 flex-shrink-0"
@@ -361,7 +345,7 @@ export function ArtistSync() {
                             {loadingPreview ? (
                                 <div className="h-full flex items-center justify-center text-gray-400 gap-2">
                                     <Loader2 className="animate-spin w-8 h-8" />
-                                    <span>正在加载歌曲列表...</span>
+                                    <span>正在加载专辑曲目...</span>
                                 </div>
                             ) : (
                                 <div className="space-y-1">
@@ -370,7 +354,6 @@ export function ArtistSync() {
                                     ) : (
                                         toSyncSongs.map((song, i) => (
                                             <div key={song.id} className="group flex items-center p-2 md:p-3 gap-2 bg-white hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100 active:bg-blue-50">
-                                                {/* 1. Song Info (Index, Image, Name) - Flex 1 */}
                                                 <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
                                                     <span className="text-gray-400 font-mono w-5 md:w-6 text-right text-sm md:text-base font-medium flex-shrink-0">{i + 1}</span>
                                                     {song.al?.picUrl && (
@@ -386,17 +369,14 @@ export function ArtistSync() {
                                                     </div>
                                                 </div>
 
-                                                {/* 2. Artist Column - Fixed Width ~25% - 隐藏在移动端 */}
                                                 <div className="hidden md:block w-1/4 px-2 text-sm text-gray-800 truncate" title={getArtistNames(song).replaceAll(',', ' / ')}>
                                                     {getArtistNames(song).replaceAll(',', ' / ')}
                                                 </div>
 
-                                                {/* 3. Album Column - Fixed Width ~25% - 隐藏在移动端 */}
                                                 <div className="hidden md:block w-1/4 px-2 text-sm text-gray-700 truncate" title={song.al?.name}>
                                                     {song.al?.name}
                                                 </div>
 
-                                                {/* 4. Action Column - 移动端始终可见 */}
                                                 <div className="w-8 md:w-10 flex justify-end shrink-0">
                                                     <button
                                                         onClick={() => handleRemoveSong(song.id)}
@@ -415,12 +395,9 @@ export function ArtistSync() {
                     </div>
                 )}
 
-                {/* State 3: Syncing / Progress */}
                 {syncStatus === 'syncing' && (
                     <div className="flex-1 flex flex-col items-center justify-center animate-fade-in py-12">
                         <div className="w-full max-w-md space-y-8 text-center">
-
-                            {/* Progress Circle or Icon */}
                             <div className="relative mx-auto w-24 h-24">
                                 <svg className="w-full h-full transform -rotate-90">
                                     <circle
@@ -477,7 +454,6 @@ export function ArtistSync() {
                     </div>
                 )}
 
-                {/* State 4: Success / Partial Success */}
                 {syncStatus === 'success' && (
                     <div className="flex-1 flex flex-col items-center justify-center animate-fade-in p-6">
                         <div className="text-center space-y-6 w-full max-w-2xl">
@@ -509,7 +485,7 @@ export function ArtistSync() {
                                     </div>
                                     <h2 className="text-3xl font-bold text-gray-800">同步完成!</h2>
                                     <p className="text-gray-500">
-                                        已成功将 {progress.current} 首歌曲同步到您的网易云盘。
+                                        已成功将 {progress.current} 首专辑歌曲同步到您的网易云盘。
                                     </p>
                                 </>
                             )}
@@ -525,7 +501,6 @@ export function ArtistSync() {
                     </div>
                 )}
 
-                {/* State 5: Error */}
                 {syncStatus === 'error' && (
                     <div className="flex-1 flex flex-col items-center justify-center animate-fade-in">
                         <div className="text-center space-y-6 max-w-md mx-auto">

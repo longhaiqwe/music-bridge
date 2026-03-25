@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { LoginPanel } from '@/components/LoginPanel';
 import { MusicSearch } from '@/components/MusicSearch';
 import { ArtistSync } from '@/components/ArtistSync';
+import { AlbumSync } from '@/components/AlbumSync';
 import { CloudLightning } from 'lucide-react';
 import { fetch as customFetch } from '@/lib/api';
 
 export default function Home() {
   const [isLogged, setIsLogged] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'single' | 'artist'>('artist');
+  const [activeTab, setActiveTab] = useState<'single' | 'artist' | 'album'>('artist');
 
   useEffect(() => {
     // Check if we already have a session
@@ -58,6 +59,15 @@ export default function Home() {
                 歌手同步
               </button>
               <button
+                onClick={() => setActiveTab('album')}
+                className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition ${activeTab === 'album'
+                  ? 'bg-blue-50 text-blue-600 shadow-sm'
+                  : 'text-gray-500 hover:bg-gray-50'
+                  }`}
+              >
+                专辑搜索
+              </button>
+              <button
                 onClick={() => setActiveTab('single')}
                 className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition ${activeTab === 'single'
                   ? 'bg-blue-50 text-blue-600 shadow-sm'
@@ -69,7 +79,7 @@ export default function Home() {
             </div>
 
             {/* Content */}
-            {activeTab === 'single' ? <MusicSearch /> : <ArtistSync />}
+            {activeTab === 'artist' ? <ArtistSync /> : activeTab === 'album' ? <AlbumSync /> : <MusicSearch />}
           </div>
         )}
 
@@ -78,6 +88,7 @@ export default function Home() {
           <div className="opacity-50 pointer-events-none filter blur-sm">
             <div className="flex bg-white p-1 rounded-xl shadow-sm border mb-6">
               <div className="flex-1 py-2 text-center text-gray-400 font-semibold">歌手同步</div>
+              <div className="flex-1 py-2 text-center text-gray-400 font-semibold">专辑搜索</div>
               <div className="flex-1 py-2 text-center text-gray-400 font-semibold">单曲搜索</div>
             </div>
             <MusicSearch />

@@ -6,11 +6,16 @@
     "music-bridge": "./bin/music-bridge.js"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build --webpack",
-    "start": "next start",
+    "dev": "node ./scripts/run-with-node-options.mjs next dev",
+    "build": "node ./scripts/run-with-node-options.mjs next build --webpack",
+    "start": "node ./scripts/run-with-node-options.mjs next start",
     "lint": "eslint",
-    "cli": "node ./bin/music-bridge.js",
+    "cli": "node ./scripts/run-with-node-options.mjs node ./bin/music-bridge.js",
+    "youtube:pot:install": "node ./scripts/install-bgutil-pot-provider.mjs",
+    "youtube:pot:server": "node ./scripts/start-bgutil-pot-provider.mjs",
+    "youtube:pot:doctor": "node ./scripts/doctor-bgutil-pot-provider.mjs",
+    "youtube:cookies:export": "node ./scripts/export-youtube-cookies.mjs",
+    "youtube:cookies:check": "node ./scripts/check-youtube-cookies.mjs",
     "postinstall": "patch-package"
   },
   "dependencies": {

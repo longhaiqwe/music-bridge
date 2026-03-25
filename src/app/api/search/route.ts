@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { downloadManager } from '@/lib/downloader';
+import { debugLog } from '@/lib/logging';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -10,11 +11,11 @@ export async function GET(request: Request) {
     }
 
     try {
-        console.log('==================================================');
-        console.log(`[Song Search] Query: ${q}`);
+        debugLog('==================================================');
+        debugLog(`[Song Search] Query: ${q}`);
         const results = await downloadManager.search(q);
-        console.log(`[Song Search] Found ${results.length} results`);
-        console.log('==================================================');
+        debugLog(`[Song Search] Found ${results.length} results`);
+        debugLog('==================================================');
         return NextResponse.json({ results });
     } catch (e) {
         console.error('Search failed:', e);

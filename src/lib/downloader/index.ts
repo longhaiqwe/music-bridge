@@ -1,4 +1,5 @@
 import { MusicInfo, MusicSource } from './types';
+import { debugLog } from '@/lib/logging';
 
 import { QQMusicSource } from './sources/qq';
 
@@ -12,7 +13,7 @@ export class DownloadManager {
 
     registerSource(source: MusicSource) {
         this.sources.push(source);
-        console.log(`Registered source: ${source.name}`);
+        debugLog(`Registered source: ${source.name}`);
     }
 
     async search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]> {

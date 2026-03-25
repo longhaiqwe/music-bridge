@@ -5,6 +5,8 @@ import { api } from '@/lib/api';
 import { MusicInfo } from '@/lib/downloader/types';
 import { Loader2, Download, Check, AlertCircle } from 'lucide-react';
 
+const JOB_POLL_INTERVAL_MS = 2500;
+
 export function MusicSearch() {
     const [keyword, setKeyword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -46,7 +48,7 @@ export function MusicSearch() {
                     throw new Error(status.error || '同步失败');
                 }
 
-                await new Promise((resolve) => setTimeout(resolve, 1200));
+                await new Promise((resolve) => setTimeout(resolve, JOB_POLL_INTERVAL_MS));
             }
         } catch {
             setSyncStatus(prev => ({ ...prev, [info.id]: 'error' }));
