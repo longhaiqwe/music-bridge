@@ -1,4 +1,5 @@
 import qq from 'qq-music-api';
+import { debugWarn } from './logging';
 
 // Set minimal log level to avoid noise
 // Set minimal log level to avoid noise
@@ -131,6 +132,13 @@ interface QQMusicSearchResponse {
             };
         };
     };
+}
+
+interface DerivedAlbumCandidate {
+    album: QQAlbumInfo;
+    frequency: number;
+    matchTier: number;
+    weightedScore: number;
 }
 
 export class QQMusicService {
@@ -290,6 +298,101 @@ export class QQMusicService {
                 return a.name.localeCompare(b.name, 'zh-Hans-CN');
             })
             .slice(0, 10);
+    }
+
+    private deriveAlbumCandidatesFromSongs(keyword: string, songs: QQSongRecord[]): QQAlbumInfo[] {
+        const normalizedKeyword = this.normalizeText(keyword);
+        const candidates = new Map<string, {
+            album: QQAlbumInfo;
+            songIds: Set<string>;
+            artistCounts: Map<string, number>;
+            weightedScore: number;
+        }>();
+
+        songs.forEach((rawSong, index) => {
+            const song = rawSong.musicData || rawSong;
+            const albumName = String(song.albumname || song.album?.name || '').trim();
+            const albumMid = String(song.albummid || song.album?.mid || '');
+
+            if (!albumName || !albumMid) {
+                return;
+            }
+
+            const candidateKey = albumMid || albumName;
+            const existing = candidates.get(candidateKey) || {
+                album: {
+                    id: albumMid,
+                    name: albumName,
+                    artistName: '',
+                    picUrl: `https://y.gtimg.cn/music/photo_new/T002R300x300M000${albumMid}.jpg`,
+                },
+                songIds: new Set<string>(),
+                artistCounts: new Map<string, number>(),
+                weightedScore: 0,
+            };
+
+            const songId = String(song.songmid || song.mid || song.songid || song.id || '');
+            if (songId) {
+                existing.songIds.add(songId);
+            }
+
+            existing.weightedScore += Math.max(1, songs.length - index);
+
+            const artists = (song.singer || [])
+                .map((artist) => artist.name || artist.singerName || artist.singername || '')
+                .filter(Boolean)
+                .join(', ');
+
+            if (artists) {
+                existing.artistCounts.set(artists, (existing.artistCounts.get(artists) || 0) + 1);
+            }
+
+            candidates.set(candidateKey, existing);
+        });
+
+        const ranked: DerivedAlbumCandidate[] = [...candidates.values()].map((candidate) => {
+            const artistName = [...candidate.artistCounts.entries()]
+                .sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+            const normalizedAlbumName = this.normalizeText(candidate.album.name);
+            const matchTier = normalizedAlbumName === normalizedKeyword
+                ? 0
+                : (normalizedAlbumName.includes(normalizedKeyword) || normalizedKeyword.includes(normalizedAlbumName) ? 1 : 2);
+
+            return {
+                album: {
+                    ...candidate.album,
+                    artistName,
+                    songCount: candidate.songIds.size || undefined,
+                },
+                frequency: candidate.songIds.size,
+                matchTier,
+                weightedScore: candidate.weightedScore,
+            };
+        });
+
+        return ranked
+            .sort((a, b) => {
+                if (a.matchTier !== b.matchTier) {
+                    return a.matchTier - b.matchTier;
+                }
+
+                if (a.weightedScore !== b.weightedScore) {
+                    return b.weightedScore - a.weightedScore;
+                }
+
+                if (a.frequency !== b.frequency) {
+                    return b.frequency - a.frequency;
+                }
+
+                return a.album.name.localeCompare(b.album.name, 'zh-Hans-CN');
+            })
+            .map((candidate) => candidate.album)
+            .slice(0, 10);
+    }
+
+    private async searchAlbumsViaSongs(keyword: string, pageSize = 50): Promise<QQAlbumInfo[]> {
+        const songs = await this.searchSongsViaMusicu(keyword, pageSize);
+        return this.deriveAlbumCandidatesFromSongs(keyword, songs);
     }
 
     private async searchArtistsViaMusicu(keyword: string, pageSize = 10): Promise<QQArtistInfo[]> {
@@ -458,14 +561,27 @@ export class QQMusicService {
                 'QQ album search'
             ) as { list?: QQAlbumSearchRecord[] };
 
-            return this.dedupeAndRankAlbums(
+            const albums = this.dedupeAndRankAlbums(
                 keyword,
                 (result.list || []).map((album) => this.normalizeAlbum(album))
             );
+            if (albums.length > 0) {
+                return albums;
+            }
         } catch (error) {
-            console.error('QQ Album Search failed:', error);
-            return [];
+            debugWarn('QQ Album Search primary route failed, falling back to song-derived albums:', error);
         }
+
+        try {
+            const albums = await this.searchAlbumsViaSongs(keyword, 50);
+            if (albums.length > 0) {
+                return albums;
+            }
+        } catch (fallbackError) {
+            debugWarn('QQ Album Search fallback failed:', fallbackError);
+        }
+
+        return [];
     }
 
     // Search for an artist and return their hot songs
