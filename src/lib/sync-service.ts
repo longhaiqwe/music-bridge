@@ -10,7 +10,7 @@ import { createWriteStream } from 'fs';
 import { SongSyncEvent } from '@/core/types';
 import { SongInfo } from '@/lib/qqmusic';
 import { Readable } from 'stream';
-import { debugLog, debugWarn } from '@/lib/logging';
+import { debugWarn, workflowLog } from '@/lib/logging';
 
 // Define Logger Type
 export type Logger = (msg: string) => void;
@@ -74,7 +74,7 @@ export async function processSongSync(
     baseInfo: MusicInfo,
     options: SyncOptions = {}
 ): Promise<UploadResult> {
-    const log = options.onLog || debugLog;
+    const log = options.onLog || workflowLog;
     const emit = options.onEvent || (() => undefined);
     const neteaseCookie = options.neteaseCookie;
     let downloadInfo: MusicInfo = { ...baseInfo };

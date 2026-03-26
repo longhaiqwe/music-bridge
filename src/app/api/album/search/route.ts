@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { qqMusicService } from '@/lib/qqmusic';
-import { debugLog } from '@/lib/logging';
+import { workflowLog } from '@/lib/logging';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -11,11 +11,11 @@ export async function GET(request: Request) {
     }
 
     try {
-        debugLog('==================================================');
-        debugLog(`[Album Search] Query: ${q}`);
+        workflowLog('==================================================');
+        workflowLog(`[Album Search] Query: ${q}`);
         const albums = await qqMusicService.searchAlbums(q);
-        debugLog(`[Album Search] Found ${albums.length} albums`);
-        debugLog('==================================================');
+        workflowLog(`[Album Search] Found ${albums.length} albums`);
+        workflowLog('==================================================');
         return NextResponse.json(albums);
     } catch (e) {
         console.error(e);

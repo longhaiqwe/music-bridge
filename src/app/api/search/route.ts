@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { downloadManager } from '@/lib/downloader';
-import { debugLog } from '@/lib/logging';
+import { workflowLog } from '@/lib/logging';
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
@@ -11,11 +11,11 @@ export async function GET(request: Request) {
     }
 
     try {
-        debugLog('==================================================');
-        debugLog(`[Song Search] Query: ${q}`);
+        workflowLog('==================================================');
+        workflowLog(`[Song Search] Query: ${q}`);
         const results = await downloadManager.search(q);
-        debugLog(`[Song Search] Found ${results.length} results`);
-        debugLog('==================================================');
+        workflowLog(`[Song Search] Found ${results.length} results`);
+        workflowLog('==================================================');
         return NextResponse.json({ results });
     } catch (e) {
         console.error('Search failed:', e);
