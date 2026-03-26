@@ -34,10 +34,8 @@ git push origin main
 | 变量名 | 值 | 说明 |
 |--------|-----|------|
 | `NETEASE_COOKIES` | 你的网易云 Cookie | 从本地 `cookie.json` 复制 |
-| `YOUTUBE_COOKIE_FILE` | YouTube cookies 文件路径（推荐） | 例如 `/app/cookies.txt` |
-| `YOUTUBE_COOKIES` | YouTube Cookie（回退） | JSON 格式 |
-| `YOUTUBE_COOKIES_FROM_BROWSER` | 是否允许回退到浏览器 cookies | 默认 `true`，建议生产设为 `false` |
-| `YOUTUBE_COOKIES_BROWSER` | 浏览器类型 | 默认 `chrome` |
+| `YOUTUBE_COOKIES_FROM_BROWSER` | 是否启用浏览器 cookies | 默认 `true` |
+| `YOUTUBE_COOKIES_BROWSER` | 浏览器类型或 profile | 例如 `chrome:Profile 2` |
 | `YOUTUBE_EXTRACTOR_ARGS` | 传给 yt-dlp 的 extractor args（可选） | 用于 PO Token / player client |
 | `YTDLP_SLEEP_REQUESTS` | yt-dlp 请求间隔（可选） | 例如 `2` |
 | `YTDLP_MIN_SLEEP_INTERVAL` | 下载间隔下限（可选） | 例如 `5` |
@@ -76,24 +74,24 @@ cat cookie.json
 
 ### YouTube 下载稳定性建议
 
-推荐优先级：
-1. 提供专用 `cookies.txt`，并通过 `YOUTUBE_COOKIE_FILE` 指向它
-2. 如仍被 YouTube 拦截，再配置 `YOUTUBE_EXTRACTOR_ARGS` 给 yt-dlp 传入 YouTube 的 extractor args（例如 PO Token provider）
-3. `--cookies-from-browser` 仅作为兜底，不建议长期依赖日常浏览器会话
+当前项目只保留 `--cookies-from-browser` 方案，不再支持 `cookies.txt` / `YOUTUBE_COOKIES`。
 
-如果你在本地导出 `cookies.txt`，建议使用单独的浏览器会话或无痕窗口，导出后不要继续在同一会话里打开 YouTube。
+推荐做法：
+1. 在本机桌面环境里登录目标浏览器 profile
+2. 配置 `YOUTUBE_COOKIES_BROWSER` 指向该 profile
+3. 如仍被 YouTube 拦截，再配置 `YOUTUBE_EXTRACTOR_ARGS` 给 yt-dlp 传入 YouTube 的 extractor args（例如 PO Token provider）
 
 本地可以直接使用：
 
 ```bash
-npm run youtube:cookies:export
-npm run youtube:cookies:check
 npm run youtube:pot:install
 npm run youtube:pot:server
 npm run youtube:pot:doctor
 ```
 
-`youtube:cookies:*`、`youtube:pot:doctor` 以及应用里的 YouTube 下载链路会自动拉起本地 `bgutil` server；`youtube:pot:server` 更适合需要单独查看 provider 日志时使用。
+`youtube:pot:doctor` 以及应用里的 YouTube 下载链路会自动拉起本地 `bgutil` server；`youtube:pot:server` 更适合需要单独查看 provider 日志时使用。
+
+注意：云端容器通常没有可复用的桌面浏览器 profile，因此 browser-based YouTube auth 更适合本地桌面运行环境。
 
 ### 成本
 

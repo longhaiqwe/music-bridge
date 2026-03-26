@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { debugLog, debugWarn } from '@/lib/logging';
 import { ensureBgutilPotServer } from '../bgutil-pot';
+import { resolveYoutubeCookieAuth, type YoutubeCookieAuthConfig } from '../youtube-auth';
 
 const execFileAsync = util.promisify(execFile);
 const TMP_DIR = path.join(process.cwd(), 'tmp_downloads');
@@ -21,24 +22,6 @@ const converter = OpenCC.Converter({ from: 'cn', to: 'hk' });
 
 interface ScoredMusicInfo extends MusicInfo {
     _debugScore?: number;
-}
-
-interface BrowserCookie {
-    domain: string;
-    path: string;
-    secure?: boolean;
-    expirationDate?: number;
-    name: string;
-    value: string;
-}
-
-type CookieAuthSource = 'file' | 'json' | 'browser' | 'none';
-
-interface CookieAuthConfig {
-    args: string[];
-    tempFile: string | null;
-    source: CookieAuthSource;
-    description: string;
 }
 
 interface ExecFailureDetails {
@@ -158,89 +141,22 @@ export class YoutubeSource implements MusicSource {
         return score;
     }
 
-    private resolveCookieFilePath(filePath: string): string {
-        return path.isAbsolute(filePath)
-            ? filePath
-            : path.join(process.cwd(), filePath);
-    }
-
-    private getCookieFileCandidates(): string[] {
-        const candidates: string[] = [];
-        const explicitFile = process.env.YOUTUBE_COOKIE_FILE?.trim();
-
-        if (explicitFile) {
-            candidates.push(this.resolveCookieFilePath(explicitFile));
-        }
-
-        candidates.push(path.join(process.cwd(), 'cookies.txt'));
-
-        return [...new Set(candidates)];
-    }
-
     /**
      * 构建 yt-dlp 的认证参数。
-     * 优先级：
-     *   1. YOUTUBE_COOKIE_FILE / cookies.txt
-     *   2. YOUTUBE_COOKIES（JSON -> 临时 netscape 文件）
-     *   3. --cookies-from-browser（显式兜底）
+     * 仅保留浏览器 cookies 方案：
+     *   1. --cookies-from-browser
+     *   2. 匿名访问（显式关闭时）
      */
-    private async buildCookieArgs(): Promise<CookieAuthConfig> {
-        const explicitFile = process.env.YOUTUBE_COOKIE_FILE?.trim();
+    private buildCookieArgs(): YoutubeCookieAuthConfig {
+        const authConfig = resolveYoutubeCookieAuth(process.env);
 
-        for (const candidate of this.getCookieFileCandidates()) {
-            if (fs.existsSync(candidate)) {
-                debugLog(`[YoutubeSource] Using cookies file: ${candidate}`);
-                return {
-                    args: ['--cookies', candidate],
-                    tempFile: null,
-                    source: 'file',
-                    description: `cookies file (${candidate})`,
-                };
-            }
+        if (authConfig.source === 'browser') {
+            debugLog(`[YoutubeSource] Using browser cookies: ${authConfig.description}`);
+        } else {
+            console.warn('[YoutubeSource] Browser cookies are disabled; yt-dlp will run anonymously');
         }
 
-        if (explicitFile) {
-            console.warn(`[YoutubeSource] YOUTUBE_COOKIE_FILE not found: ${this.resolveCookieFilePath(explicitFile)}`);
-        }
-
-        const cookieStr = process.env.YOUTUBE_COOKIES;
-        if (cookieStr) {
-            try {
-                const cookies = JSON.parse(cookieStr) as BrowserCookie[];
-                const tempFile = path.join(TMP_DIR, `cookies_${Date.now()}_${Math.random().toString(36).substring(7)}.txt`);
-                const netscapeCookies = this.convertCookiesToNetscape(cookies);
-                fs.writeFileSync(tempFile, netscapeCookies);
-                debugLog('[YoutubeSource] Using YOUTUBE_COOKIES env as temporary cookies file');
-                return {
-                    args: ['--cookies', tempFile],
-                    tempFile,
-                    source: 'json',
-                    description: 'YOUTUBE_COOKIES env',
-                };
-            } catch (e) {
-                console.warn('[YoutubeSource] Failed to parse/write YOUTUBE_COOKIES:', e);
-            }
-        }
-
-        const useFromBrowser = process.env.YOUTUBE_COOKIES_FROM_BROWSER !== 'false';
-        if (useFromBrowser) {
-            const browser = process.env.YOUTUBE_COOKIES_BROWSER || 'chrome';
-            debugLog(`[YoutubeSource] Falling back to browser cookies: ${browser}`);
-            return {
-                args: ['--cookies-from-browser', browser],
-                tempFile: null,
-                source: 'browser',
-                description: `browser cookies (${browser})`,
-            };
-        }
-
-        console.warn('[YoutubeSource] No YouTube auth material configured; yt-dlp will run anonymously');
-        return {
-            args: [],
-            tempFile: null,
-            source: 'none',
-            description: 'anonymous session',
-        };
+        return authConfig;
     }
 
     private getCommonYtDlpArgs(operation: YtDlpOperation): string[] {
@@ -370,7 +286,7 @@ export class YoutubeSource implements MusicSource {
             .map(([name, value]) => `${name}=${String(value)}`)
             .join(', ');
 
-        return ` 当前检测到代理环境：${details}。如果 cookies 和 PO Token provider 都已配置仍失败，常见原因是代理出口 IP 被 YouTube 风控；建议先切换节点再重试。`;
+        return ` 当前检测到代理环境：${details}。如果浏览器会话和 PO Token provider 都已配置仍失败，常见原因是代理出口 IP 被 YouTube 风控；建议先切换节点再重试。`;
     }
 
     private isYouTubeAuthFailure(text: string): boolean {
@@ -385,7 +301,7 @@ export class YoutubeSource implements MusicSource {
         ].some((pattern) => pattern.test(text));
     }
 
-    private toHelpfulYtDlpError(error: unknown, operation: YtDlpOperation, authConfig: CookieAuthConfig): Error {
+    private toHelpfulYtDlpError(error: unknown, operation: YtDlpOperation, authConfig: YoutubeCookieAuthConfig): Error {
         if (error instanceof YoutubeAuthenticationError) {
             return error;
         }
@@ -396,10 +312,8 @@ export class YoutubeSource implements MusicSource {
 
         if (this.isYouTubeAuthFailure(`${fallback}\n${stderr}`)) {
             const authHint = authConfig.source === 'browser'
-                ? '当前正在使用浏览器会话作为兜底，这类活会话最容易失效。请优先改用专用 cookies.txt。'
-                : authConfig.source === 'none'
-                    ? '当前没有可用的 YouTube 认证材料，请提供 cookies.txt。'
-                    : '当前 cookies / 会话可能已失效，请刷新专用 cookies.txt。';
+                ? '当前正在使用浏览器会话，请确认对应浏览器 profile 仍处于登录状态，并且该 profile 可以正常打开 YouTube。'
+                : '当前未启用浏览器 cookies，请开启 YOUTUBE_COOKIES_FROM_BROWSER 并配置 YOUTUBE_COOKIES_BROWSER。';
             const poTokenHint = '如仍被拦截，请通过 YOUTUBE_EXTRACTOR_ARGS / YTDLP_EXTRACTOR_ARGS 为 yt-dlp 配置 YouTube 的 extractor args（例如 PO Token provider）。';
             const proxyHint = this.getProxyHint();
             return new YoutubeAuthenticationError(
@@ -413,41 +327,35 @@ export class YoutubeSource implements MusicSource {
 
     async search(keyword: string, options?: { artist?: string; duration?: number; songName?: string }): Promise<MusicInfo[]> {
         await ensureBgutilPotServer();
-        const authConfig = await this.buildCookieArgs();
+        const authConfig = this.buildCookieArgs();
         try {
-            try {
-                debugLog(`[YoutubeSource] Searching for: ${keyword}`);
-                const args = [
-                    '--dump-json',
-                    '--no-playlist',
-                    `ytsearch10:${keyword}`,
-                    ...this.getCommonYtDlpArgs('search'),
-                    ...authConfig.args
-                ];
-                const { stdout } = await this.execWithRetry('yt-dlp', args);
-                const results = this.parseSearchResults(stdout, keyword, options);
+            debugLog(`[YoutubeSource] Searching for: ${keyword}`);
+            const args = [
+                '--dump-json',
+                '--no-playlist',
+                `ytsearch10:${keyword}`,
+                ...this.getCommonYtDlpArgs('search'),
+                ...authConfig.args
+            ];
+            const { stdout } = await this.execWithRetry('yt-dlp', args);
+            const results = this.parseSearchResults(stdout, keyword, options);
 
-                // Sort by calculated score
-                // Log top 3 for debugging
-                debugLog('[YoutubeSource] Top 3 results:', results.slice(0, 3).map(r =>
-                    `${(r.name.length > 30 ? r.name.substring(0, 30) + '...' : r.name)} (${Math.round(r._debugScore ?? 0)}) [${r.duration}s]`
-                ));
+            // Sort by calculated score
+            // Log top 3 for debugging
+            debugLog('[YoutubeSource] Top 3 results:', results.slice(0, 3).map(r =>
+                `${(r.name.length > 30 ? r.name.substring(0, 30) + '...' : r.name)} (${Math.round(r._debugScore ?? 0)}) [${r.duration}s]`
+            ));
 
-                return results;
-            } catch (e) {
-                const { stdout, stderr } = this.getExecFailureDetails(e);
-                if (stdout.trim()) {
-                    debugWarn(`[YoutubeSource] yt-dlp search returned partial results: ${this.summarizeYtDlpError(stderr, 'partial failure')}`);
-                    return this.parseSearchResults(stdout, keyword, options);
-                }
-
-                const helpfulError = this.toHelpfulYtDlpError(e, 'search', authConfig);
-                throw helpfulError;
+            return results;
+        } catch (e) {
+            const { stdout, stderr } = this.getExecFailureDetails(e);
+            if (stdout.trim()) {
+                debugWarn(`[YoutubeSource] yt-dlp search returned partial results: ${this.summarizeYtDlpError(stderr, 'partial failure')}`);
+                return this.parseSearchResults(stdout, keyword, options);
             }
-        } finally {
-            if (authConfig.tempFile && fs.existsSync(authConfig.tempFile)) {
-                try { fs.unlinkSync(authConfig.tempFile); } catch { }
-            }
+
+            const helpfulError = this.toHelpfulYtDlpError(e, 'search', authConfig);
+            throw helpfulError;
         }
     }
 
@@ -471,74 +379,51 @@ export class YoutubeSource implements MusicSource {
             }
         }
 
-        const authConfig = await this.buildCookieArgs();
+        const authConfig = this.buildCookieArgs();
         try {
-            try {
-                debugLog(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
+            debugLog(`[YoutubeSource] Downloading with yt-dlp: ${info.name}`);
 
-                // Construct output template for yt-dlp
-                // We use the safe basename + dynamic extension, though we requested flac
-                const safeBaseName = path.basename(targetFilename, '.flac');
-                const outputTemplate = path.join(TMP_DIR, `${safeBaseName}.%(ext)s`);
+            // Construct output template for yt-dlp
+            // We use the safe basename + dynamic extension, though we requested flac
+            const safeBaseName = path.basename(targetFilename, '.flac');
+            const outputTemplate = path.join(TMP_DIR, `${safeBaseName}.%(ext)s`);
 
-                const args = [
-                    '-x',
-                    '--audio-format',
-                    'flac',
-                    '-o',
-                    outputTemplate,
-                    `https://www.youtube.com/watch?v=${info.originalId}`,
-                    ...this.getCommonYtDlpArgs('download'),
-                    ...authConfig.args
-                ];
+            const args = [
+                '-x',
+                '--audio-format',
+                'flac',
+                '-o',
+                outputTemplate,
+                `https://www.youtube.com/watch?v=${info.originalId}`,
+                ...this.getCommonYtDlpArgs('download'),
+                ...authConfig.args
+            ];
 
-                await this.execWithRetry('yt-dlp', args);
+            await this.execWithRetry('yt-dlp', args);
 
-                if (fs.existsSync(filePath)) {
-                    const stats = fs.statSync(filePath);
-                    // Check if file is valid (at least 10KB to be a valid song)
-                    if (stats.size > 10 * 1024) {
-                        return filePath;
-                    }
-                    debugWarn(`[YoutubeSource] Downloaded file is too small (${stats.size} bytes), deleting...`);
-                    fs.unlinkSync(filePath);
+            if (fs.existsSync(filePath)) {
+                const stats = fs.statSync(filePath);
+                // Check if file is valid (at least 10KB to be a valid song)
+                if (stats.size > 10 * 1024) {
+                    return filePath;
                 }
-
-                // Fallback: check other extensions if mp3 failed but something else arrived
-                // Look for files starting with our safe basename
-                const files = fs.readdirSync(TMP_DIR);
-                const downloaded = files.find(f => f.startsWith(safeBaseName));
-                if (downloaded) {
-                    return path.join(TMP_DIR, downloaded);
-                }
-
-                throw new Error('Download failed: file not found after yt-dlp execution');
-            } catch (e) {
-                const helpfulError = this.toHelpfulYtDlpError(e, 'download', authConfig);
-                throw helpfulError;
+                debugWarn(`[YoutubeSource] Downloaded file is too small (${stats.size} bytes), deleting...`);
+                fs.unlinkSync(filePath);
             }
-        } finally {
-            if (authConfig.tempFile && fs.existsSync(authConfig.tempFile)) {
-                try { fs.unlinkSync(authConfig.tempFile); } catch { }
+
+            // Fallback: check other extensions if mp3 failed but something else arrived
+            // Look for files starting with our safe basename
+            const files = fs.readdirSync(TMP_DIR);
+            const downloaded = files.find(f => f.startsWith(safeBaseName));
+            if (downloaded) {
+                return path.join(TMP_DIR, downloaded);
             }
+
+            throw new Error('Download failed: file not found after yt-dlp execution');
+        } catch (e) {
+            const helpfulError = this.toHelpfulYtDlpError(e, 'download', authConfig);
+            throw helpfulError;
         }
-    }
-
-    private convertCookiesToNetscape(cookies: BrowserCookie[]): string {
-        let output = '# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n';
-
-        for (const cookie of cookies) {
-            const domain = cookie.domain;
-            const flag = domain.startsWith('.') ? 'TRUE' : 'FALSE';
-            const path = cookie.path;
-            const secure = cookie.secure ? 'TRUE' : 'FALSE';
-            const expiration = Math.round(cookie.expirationDate || (Date.now() / 1000) + 31536000); // Default 1 year if missing
-            const name = cookie.name;
-            const value = cookie.value;
-
-            output += `${domain}\t${flag}\t${path}\t${secure}\t${expiration}\t${name}\t${value}\n`;
-        }
-        return output;
     }
 
     private async execWithRetry(

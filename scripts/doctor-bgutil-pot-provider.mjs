@@ -8,11 +8,12 @@ import process from 'node:process';
 
 import { ensureBgutilPotServer } from './bgutil-pot-server-utils.mjs';
 
-const cookieFile = path.resolve(process.env.YOUTUBE_COOKIE_FILE?.trim() || path.join(process.cwd(), 'cookies.txt'));
 const providerRepo = path.join(os.homedir(), 'bgutil-ytdlp-pot-provider');
 const providerBuild = path.join(providerRepo, 'server', 'build', 'main.js');
 const providerZip = path.join(os.homedir(), '.config', 'yt-dlp', 'plugins', 'bgutil-ytdlp-pot-provider.zip');
 const recommendedExtractorArgs = 'youtube:player_client=mweb';
+const browserCookiesEnabled = process.env.YOUTUBE_COOKIES_FROM_BROWSER !== 'false';
+const browserProfile = process.env.YOUTUBE_COOKIES_BROWSER?.trim() || 'chrome';
 
 function runCapture(command, args) {
   return execFileSync(command, args, {
@@ -74,7 +75,7 @@ try {
   }
   console.log(`Plugin ZIP: ${fs.existsSync(providerZip) ? 'present' : 'missing'} (${providerZip})`);
   console.log(`Provider build: ${fs.existsSync(providerBuild) ? 'present' : 'missing'} (${providerBuild})`);
-  console.log(`Cookies file: ${fs.existsSync(cookieFile) ? 'present' : 'missing'} (${cookieFile})`);
+  console.log(`Browser cookies: ${browserCookiesEnabled ? `enabled (${browserProfile})` : 'disabled'}`);
 
   const verboseOutput = captureAll('yt-dlp', ['-v', '--ignore-config', '--simulate', '--skip-download', 'https://www.youtube.com/watch?v=BaW_jenozKcj']);
   if (hasProvider(verboseOutput)) {
@@ -91,14 +92,14 @@ try {
     console.log('[YouTube POT] No proxy env detected.');
   }
 
-  if (!fs.existsSync(cookieFile)) {
-    console.warn('[YouTube POT] Cookies file is missing, skipping auth check.');
+  if (!browserCookiesEnabled) {
+    console.warn('[YouTube POT] Browser cookies are disabled, skipping auth check.');
     process.exit(0);
   }
 
   const searchOutput = captureAll('yt-dlp', [
-    '--cookies',
-    cookieFile,
+    '--cookies-from-browser',
+    browserProfile,
     '--extractor-args',
     recommendedExtractorArgs,
     '--dump-json',
@@ -112,7 +113,7 @@ try {
     if (proxySummary) {
       console.error('[YouTube POT] Most likely the current proxy exit IP is being challenged by YouTube. Try another node first.');
     } else {
-      console.error('[YouTube POT] Refresh cookies or try a different network egress.');
+      console.error('[YouTube POT] Refresh the browser session or try a different network egress.');
     }
     console.error(searchOutput.split(/\r?\n/).filter(Boolean).slice(-6).join('\n'));
     process.exit(1);
